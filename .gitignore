@@ -58,4 +58,8 @@ terraform.rc
 coverage/
 htmlcov/
 .coverage
+
 .cursor
+
+# Backend local data (sqlite, uploads)
+backend/.data/
