@@ -48,6 +48,10 @@ def _generate_tailored_resume(state: TalentStreamState) -> TalentStreamState:
     if not job_data or not resume_data:
         return TalentStreamState(error="Missing required data for resume generation")
 
+    gaps = gap_analysis or {}
+    keyword_gaps = gaps.get("keyword_gaps", [])
+    skill_gaps = gaps.get("skill_gaps", [])
+
     prompt = f"""Generate an ATS-optimized tailored resume for this position.
 
 JOB DETAILS:
@@ -64,8 +68,8 @@ Education: {resume_data.get("education", [])}
 Skills: {resume_data.get("skills", [])}
 
 ATS GAPS TO ADDRESS:
-{gap_analysis.get("keyword_gaps", [])}
-{gap_analysis.get("skill_gaps", [])}
+{keyword_gaps}
+{skill_gaps}
 
 Generate a complete tailored resume in markdown format that:
 1. Mirrors the job description's vocabulary and key phrases

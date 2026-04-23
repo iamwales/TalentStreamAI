@@ -1,6 +1,6 @@
 """API v1 endpoints for TalentStreamAI."""
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -10,6 +10,17 @@ from app.tools.resume_parser import parse_resume
 from app.tools.ats_scorer import ats_score_resume
 
 router = APIRouter()
+
+
+def validate_resume_file(resume: UploadFile) -> str:
+    """Validate resume file format and return the extension."""
+    ext = resume.filename.rsplit(".", 1)[-1].lower() if resume.filename else ""
+    if not ext or ext not in ["pdf", "docx", "doc"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported file format. Use PDF or DOCX.",
+        )
+    return ext
 
 
 class ApplyRequest(BaseModel):
@@ -48,18 +59,13 @@ class ScoreATSResponse(BaseModel):
 
 @router.post("/apply", response_model=ApplyResponse)
 async def apply_to_job(
-    job_url: str = File(..., description="URL of the job posting"),
+    job_url: str = Form(..., description="URL of the job posting"),
     resume: UploadFile = File(..., description="Resume file (PDF or DOCX)"),
 ) -> ApplyResponse:
     """Run complete TalentStreamAI workflow to generate application materials."""
     import base64
 
-    ext = resume.filename.rsplit(".", 1)[-1].lower() if resume.filename else ""
-    if not ext or ext not in ["pdf", "docx", "doc"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Unsupported file format. Use PDF or DOCX.",
-        )
+    ext = validate_resume_file(resume)
 
     file_content = await resume.read()
     file_b64 = base64.b64encode(file_content).decode("utf-8")
@@ -91,7 +97,7 @@ async def apply_to_job(
 
 
 @router.post("/fetch-job", response_model=FetchJobResponse)
-async def fetch_job(job_url: str = File(...)) -> FetchJobResponse:
+async def fetch_job(job_url: str = Form(...)) -> FetchJobResponse:
     """Fetch and parse a job description from URL."""
     try:
         result = fetch_job_description.invoke({"url": job_url})
@@ -107,12 +113,7 @@ async def parse_resume_endpoint(
     """Parse a resume file (PDF or DOCX)."""
     import base64
 
-    ext = resume.filename.rsplit(".", 1)[-1].lower() if resume.filename else ""
-    if not ext or ext not in ["pdf", "docx", "doc"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Unsupported file format. Use PDF or DOCX.",
-        )
+    ext = validate_resume_file(resume)
 
     file_content = await resume.read()
     file_b64 = base64.b64encode(file_content).decode("utf-8")
@@ -131,13 +132,13 @@ async def parse_resume_endpoint(
 
 @router.post("/score-ats", response_model=ScoreATSResponse)
 async def score_ats(
-    job_url: str = File(...),
+    job_url: str = Form(...),
     resume: UploadFile = File(...),
 ) -> ScoreATSResponse:
     """Score resume against job description for ATS compatibility."""
     import base64
 
-    ext = resume.filename.rsplit(".", 1)[-1].lower() if resume.filename else ""
+    ext = validate_resume_file(resume)
 
     file_content = await resume.read()
     file_b64 = base64.b64encode(file_content).decode("utf-8")
