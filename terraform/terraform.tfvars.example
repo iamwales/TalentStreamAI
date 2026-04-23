@@ -1,3 +1,53 @@
 aws_region   = "us-east-1"
 project_name = "talentstreamai"
 environment  = "dev"
+
+github_org  = "your-github-org"
+github_repo = "TalentStreamAI"
+
+frontend_bucket_name = "talentstreamai-dev-frontend-example"
+
+# Patterns map to token.actions.githubusercontent.com:sub
+# repo:<org>/<repo>:ref:refs/heads/main
+github_ref_patterns = ["ref:refs/heads/main"]
+
+# If your account already has the provider, set create_oidc_provider=false
+# and provide existing_oidc_provider_arn.
+create_oidc_provider      = true
+existing_oidc_provider_arn = ""
+
+deploy_role_name = "github-actions-talentstreamai-deploy"
+
+# CloudFront custom domain is optional.
+cloudfront_aliases             = []
+cloudfront_acm_certificate_arn = ""
+route53_zone_id                = ""
+
+lambda_function_name = "talentstreamai-api"
+lambda_handler       = "app.lambda_handler.handler"
+lambda_runtime       = "python3.12"
+lambda_timeout       = 30
+lambda_memory_size   = 512
+
+clerk_jwt_issuer    = "https://your-clerk-domain.clerk.accounts.dev"
+clerk_jwt_audiences = ["your-clerk-audience"]
+
+cors_origins            = "https://example.cloudfront.net"
+deployment_environment  = "dev"
+lambda_environment = {
+  LOG_LEVEL = "INFO"
+}
+
+# Optional list of pre-existing secret ARNs Lambda can read.
+lambda_secret_arns = []
+
+create_app_config_secret  = true
+app_config_secret_name    = "talentstreamai/app-config"
+app_config_secret_description = "Application runtime secret payload for TalentStreamAI Lambda."
+
+api_stage_name = "$default"
+
+# Remote state resources used by deploy role permissions.
+state_bucket_arn         = "arn:aws:s3:::your-terraform-state-bucket"
+state_bucket_objects_arn = "arn:aws:s3:::your-terraform-state-bucket/*"
+state_lock_table_arn     = "arn:aws:dynamodb:us-east-1:123456789012:table/terraform-locks"
