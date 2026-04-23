@@ -119,36 +119,60 @@ Stop everything with `./scripts/stop.sh`.
 
 ## Terraform (single root under `terraform/`)
 
-`main.tf` holds the `terraform {}` block (including the empty **S3** `backend "s3" {}` stub), a `locals` name helper, and a **numbered checklist** for the architecture you are building toward. There are **no `resource` blocks** in this repository on purpose.
+The Terraform root now provisions:
 
-`variables.tf` / `outputs.tf` / `providers.tf` give you tagging defaults and a couple of outputs (`stack_name`, `aws_region`, `next_steps`) so CI and humans can sanity-check wiring before anyone adds modules or resources.
+- GitHub Actions OIDC provider, deploy role, trust policy, and deploy permissions.
+- Frontend edge stack: private S3 bucket, CloudFront OAC, CloudFront distribution.
+- Backend edge stack: API Gateway HTTP API with Clerk JWT authorizer, Lambda function + IAM role, CloudWatch logs.
+- CloudFront `/api/*` behavior forwarding to API Gateway while static files come from S3.
 
-Nothing in the FastAPI or Next.js code hardcodes `dev`/`staging`/`prod`. Terraform’s `environment` variable is validated to those three values for tags and future state keys.
+`variables.tf` contains all deployment knobs (GitHub repo identity, state ARNs, Clerk issuer/audience, Lambda environment maps, optional secret ARNs, and custom domain settings).
 
 ### Remote state
 
 The `terraform {}` block declares an **S3 backend** (empty configuration). Every `terraform init` needs either:
 
 - `terraform/backend.hcl` (copy `terraform/backend.hcl.example`), or
-- `TALENTSTREAM_USE_LOCAL_TF_STATE=1` with `./scripts/deploy-aws.sh` for disposable local state (not for teams).
+- `TALENTSTREAM_USE_LOCAL_TF_STATE=1` with `python3 scripts/deploy_aws.py` for disposable local state (not for teams).
 
-### Plan / destroy helpers
+### Provision / destroy helpers
 
 ```bash
 cd terraform
 cp terraform.tfvars.example terraform.tfvars
-# set aws_region, project_name, environment (dev | staging | prod)
+# set required variables (github_org, github_repo, frontend_bucket_name, Clerk settings, state ARNs, etc.)
 ```
 
 From the repository root:
 
 ```bash
-./scripts/deploy-aws.sh            # writes a plan (no apply)
-./scripts/deploy-aws.sh staging
-TF_ENVIRONMENT=prod ./scripts/deploy-aws.sh
+python3 scripts/bootstrap_tf_state.py <bucket> <lock-table> us-east-1
+python3 scripts/setup_github_oidc.py --environment dev
+python3 scripts/terraform_provision.py --environment dev
 ```
 
-`./scripts/destroy-aws.sh` is a thin wrapper around `terraform destroy` for when resources eventually exist.
+`python3 scripts/destroy_aws.py` runs `terraform destroy` for an environment after confirmation.
+
+## Packaging and deploy scripts
+
+Independent scripts are provided for prep, provision, and upload so frontend and backend can be deployed separately or together:
+
+```bash
+# Frontend
+python3 scripts/prep_frontend.py
+python3 scripts/upload_frontend.py
+python3 scripts/deploy_frontend.py --environment dev
+
+# Backend Lambda
+python3 scripts/prep_backend_lambda.py
+python3 scripts/upload_backend_lambda.py
+python3 scripts/deploy_backend.py --environment dev
+
+# Full orchestration
+python3 scripts/deploy_all.py --environment dev
+```
+
+Each deploy script supports partial flows (for example `--skip-prep`, `--skip-tf`, `--provision-only`, or `--upload-only`).
 
 ## Project structure
 
@@ -174,8 +198,8 @@ TalentStreamAI/
 │   ├── Dockerfile                   # Local `next dev` in Docker (used by Compose)
 │   ├── next.config.ts
 │   └── package.json
-├── terraform/                       # AWS scaffold (no resources yet)
-│   ├── main.tf                      # terraform {} + locals + architecture checklist
+├── terraform/                       # AWS IaC root (OIDC + S3/CloudFront + API GW/Lambda)
+│   ├── main.tf                      # Core AWS resources and IAM policies
 │   ├── variables.tf
 │   ├── outputs.tf
 │   ├── providers.tf
@@ -185,7 +209,13 @@ TalentStreamAI/
 ├── scripts/
 │   ├── bootstrap-local.sh           # uv sync + npm install
 │   ├── run.sh / stop.sh             # Docker Compose up / down
-│   └── deploy-aws.sh / destroy-aws.sh   # Terraform plan / destroy helpers
+│   ├── bootstrap_tf_state.py        # One-time S3 + DynamoDB remote state bootstrap
+│   ├── setup_github_oidc.py         # One-time OIDC provider + deploy role bootstrap
+│   ├── terraform_provision.py       # terraform init/plan/apply wrapper
+│   ├── prep_frontend.py / upload_frontend.py / deploy_frontend.py
+│   ├── prep_backend_lambda.py / upload_backend_lambda.py / deploy_backend.py
+│   ├── deploy_all.py                # One command for frontend + backend
+│   └── destroy_aws.py               # Terraform destroy helper
 ├── .github/
 │   ├── workflows/                   # CI + deploy placeholder workflows
 │   └── aws/
@@ -196,13 +226,37 @@ TalentStreamAI/
 └── README.md
 ```
 
-## GitHub Actions (scaffold)
+## GitHub Actions
 
-`.github/workflows/ci.yml` runs on pushes and pull requests to `main` but **only checks out the repository** and echoes that real CI is still to be defined (backend uv/tests, frontend npm/lint/build, Terraform fmt/validate, and so on).
+`.github/workflows/ci.yml` now runs:
 
-`.github/workflows/deploy-aws.yml` is **manual (`workflow_dispatch`) only** and does **not** call AWS or Terraform. It prints a short checklist for when you add OIDC, secrets, `terraform apply`, image pushes, and static asset publishing.
+- frontend lint + static build,
+- backend Lambda packaging check,
+- Terraform fmt/init(validate with local backend disabled).
 
-For OIDC trust policy shaping, see `.github/aws/github-oidc-trust-policy.json.example` and replace `ACCOUNT_ID`, `GITHUB_ORG`, and `REPO` before attaching it to an IAM role.
+`.github/workflows/deploy-aws.yml` is a manual workflow with targets (`oidc`, `frontend`, `backend`, `all`) that:
+
+- assumes AWS with GitHub OIDC,
+- generates backend.hcl and terraform.tfvars from repository/environment variables,
+- runs the same deploy scripts used locally.
+
+For OIDC trust policy shaping, see `.github/aws/github-oidc-trust-policy.json.example`.
+
+### Required GitHub variables
+
+At minimum, configure these repository or environment variables before running deploy workflow:
+
+- `AWS_ROLE_ARN`
+- `AWS_REGION`
+- `AWS_ACCOUNT_ID`
+- `TF_STATE_BUCKET`
+- `TF_STATE_LOCK_TABLE`
+- `GITHUB_ORG`
+- `GITHUB_REPO`
+- `FRONTEND_BUCKET_NAME`
+- `CLERK_JWT_ISSUER`
+- `CLERK_JWT_AUDIENCE`
+- `CORS_ORIGINS`
 
 ## Where feature work should land
 
@@ -223,12 +277,16 @@ cd backend && uv sync && uv run python -m compileall -q app
 
 Add pytest, Ruff, or mypy when the API surface grows; the scaffold stays intentionally small.
 
+## Lambda runtime note
+
+FastAPI is exposed to Lambda via `backend/app/lambda_handler.py` using Mangum. `scripts/prep_backend_lambda.py` builds a zip artifact at `dist/backend-lambda.zip` including app code and Lambda dependencies.
+
 ## Troubleshooting quick hits
 
 - **UI shows “Backend not responding.”** Confirm Uvicorn is listening on `8000`, `CORS_ORIGINS` includes your UI origin, and `NEXT_PUBLIC_API_URL` matches how your browser reaches the API.
 - **`docker compose` cannot reach Docker.** Start Docker Desktop (macOS/Windows) or the Linux daemon, then rerun `./scripts/run.sh`.
 - **`http://localhost:3000` does nothing.** Confirm the frontend container is up (`docker compose ps`) and check `docker compose logs frontend`. If **`docker compose build frontend`** fails or the container exits with **137**, raise **Memory** in Docker Desktop (Settings → Resources), then rebuild. After **`package-lock.json`** changes, run `docker compose build frontend` (or `./scripts/run.sh` with `--build`) again.
 - **Terraform init asks for backend settings.** Create `terraform/backend.hcl` or export `TALENTSTREAM_USE_LOCAL_TF_STATE=1` for disposable local state.
-- **GitHub Actions.** The bundled workflows are placeholders only; there is nothing to “fix” for credentials until you replace them with real jobs.
+- **Deploy workflow fails before Terraform apply.** Confirm GitHub repository/environment variables include state bucket/table, role ARN, Clerk issuer/audience, and frontend bucket name.
 
 
