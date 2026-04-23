@@ -1,31 +1,117 @@
-# Scaffold — no AWS calls. Copy patterns from AWS docs when you add OIDC, terraform apply, image push, etc.
-
-name: Deploy (scaffold)
+name: Deploy AWS
 
 on:
   workflow_dispatch:
     inputs:
       environment:
-        description: Placeholder label for future dev/staging/prod deploys
+        description: Deployment environment
         type: choice
         options:
           - dev
           - staging
           - prod
         default: dev
+      target:
+        description: Which deployment flow to run
+        type: choice
+        options:
+          - oidc
+          - frontend
+          - backend
+          - all
+        default: all
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
-  placeholder:
+  deploy:
     runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy not wired yet
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.6
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Setup Terraform backend and tfvars
         run: |
-          echo "TalentStreamAI deploy scaffold: no AWS credentials or Terraform apply in this workflow."
-          echo "When ready: add OIDC (see .github/aws/github-oidc-trust-policy.json.example), repository secrets/vars,"
-          echo "then steps for terraform init/apply, ECR push, S3 sync, CloudFront invalidation, etc."
-          echo "Environment label (for future use): ${{ inputs.environment }}"
+          cat > terraform/backend.hcl <<EOF
+          bucket         = "${{ vars.TF_STATE_BUCKET }}"
+          key            = "${{ vars.TF_STATE_KEY_PREFIX || 'talentstreamai' }}/${{ inputs.environment }}/terraform.tfstate"
+          region         = "${{ vars.AWS_REGION || 'us-east-1' }}"
+          dynamodb_table = "${{ vars.TF_STATE_LOCK_TABLE }}"
+          encrypt        = true
+          EOF
+          cat > terraform/terraform.tfvars <<EOF
+          aws_region   = "${{ vars.AWS_REGION || 'us-east-1' }}"
+          project_name = "${{ vars.TF_PROJECT_NAME || 'talentstreamai' }}"
+          environment  = "${{ inputs.environment }}"
+          github_org   = "${{ vars.GITHUB_ORG }}"
+          github_repo  = "${{ vars.GITHUB_REPO }}"
+          github_ref_patterns = ["ref:refs/heads/main"]
+          create_oidc_provider = ${{ vars.TF_CREATE_OIDC_PROVIDER || 'true' }}
+          existing_oidc_provider_arn = "${{ vars.TF_EXISTING_OIDC_PROVIDER_ARN || '' }}"
+          deploy_role_name = "${{ vars.TF_DEPLOY_ROLE_NAME || 'github-actions-talentstreamai-deploy' }}"
+          frontend_bucket_name = "${{ vars.FRONTEND_BUCKET_NAME }}"
+          cloudfront_aliases = []
+          cloudfront_acm_certificate_arn = "${{ vars.CLOUDFRONT_ACM_CERTIFICATE_ARN || '' }}"
+          route53_zone_id = "${{ vars.ROUTE53_ZONE_ID || '' }}"
+          lambda_function_name = "${{ vars.LAMBDA_FUNCTION_NAME || 'talentstreamai-api' }}"
+          lambda_handler = "app.lambda_handler.handler"
+          clerk_jwt_issuer = "${{ vars.CLERK_JWT_ISSUER }}"
+          clerk_jwt_audiences = ["${{ vars.CLERK_JWT_AUDIENCE }}"]
+          cors_origins = "${{ vars.CORS_ORIGINS }}"
+          deployment_environment = "${{ inputs.environment }}"
+          lambda_environment = {}
+          lambda_secret_arns = []
+          create_app_config_secret = true
+          app_config_secret_name = "${{ vars.APP_CONFIG_SECRET_NAME || 'talentstreamai/app-config' }}"
+          app_config_secret_description = "Application runtime secret payload for TalentStreamAI Lambda."
+          api_stage_name = "\$default"
+          state_bucket_arn = "arn:aws:s3:::${{ vars.TF_STATE_BUCKET }}"
+          state_bucket_objects_arn = "arn:aws:s3:::${{ vars.TF_STATE_BUCKET }}/*"
+          state_lock_table_arn = "arn:aws:dynamodb:${{ vars.AWS_REGION || 'us-east-1' }}:${{ vars.AWS_ACCOUNT_ID }}:table/${{ vars.TF_STATE_LOCK_TABLE }}"
+          EOF
+
+      - name: Bootstrap OIDC role only
+        if: ${{ inputs.target == 'oidc' }}
+        env:
+          TF_ENVIRONMENT: ${{ inputs.environment }}
+        run: python3 scripts/setup_github_oidc.py --environment "${TF_ENVIRONMENT}"
+
+      - name: Deploy frontend only
+        if: ${{ inputs.target == 'frontend' }}
+        env:
+          TF_ENVIRONMENT: ${{ inputs.environment }}
+          NEXT_PUBLIC_API_URL: ""
+        run: python3 scripts/deploy_frontend.py --environment "${TF_ENVIRONMENT}"
+
+      - name: Deploy backend only
+        if: ${{ inputs.target == 'backend' }}
+        env:
+          TF_ENVIRONMENT: ${{ inputs.environment }}
+        run: python3 scripts/deploy_backend.py --environment "${TF_ENVIRONMENT}"
+
+      - name: Deploy full stack
+        if: ${{ inputs.target == 'all' }}
+        env:
+          TF_ENVIRONMENT: ${{ inputs.environment }}
+          NEXT_PUBLIC_API_URL: ""
+        run: python3 scripts/deploy_all.py --environment "${TF_ENVIRONMENT}"
