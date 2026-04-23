@@ -11,18 +11,21 @@ export default function LandingNavButtons() {
   if (isSignedIn) {
     return (
       <Button asChild size="sm">
-        <Link href="/dashboard">Dashboard</Link>
+        <Link href="/dashboard">Go to dashboard</Link>
       </Button>
     );
   }
 
   return (
     <div className="flex items-center gap-2">
-      <Button asChild variant="ghost" size="sm">
-        <Link href="/sign-in">Sign in</Link>
-      </Button>
+      <Link
+        href="/sign-in"
+        className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+      >
+        Log in
+      </Link>
       <Button asChild size="sm">
-        <Link href="/sign-up">Get started</Link>
+        <Link href="/sign-up">Get started free</Link>
       </Button>
     </div>
   );

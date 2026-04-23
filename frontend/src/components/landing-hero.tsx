@@ -2,55 +2,95 @@
 
 import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+
+function ScorePreview() {
+  return (
+    <div className="mx-auto mt-10 w-full max-w-sm rounded-2xl border bg-card p-5 shadow-md">
+      <p className="mb-3 text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        Example optimization
+      </p>
+      <div className="flex items-center justify-center gap-4">
+        {/* Before */}
+        <div className="flex flex-col items-center gap-1.5">
+          <span className="text-3xl font-bold text-destructive">45%</span>
+          <div className="h-2 w-24 overflow-hidden rounded-full bg-muted">
+            <div className="h-full w-[45%] rounded-full bg-destructive" />
+          </div>
+          <span className="text-xs text-muted-foreground">Before</span>
+        </div>
+
+        {/* Arrow */}
+        <ArrowRight className="mt-[-10px] h-5 w-5 shrink-0 text-muted-foreground" />
+
+        {/* After */}
+        <div className="flex flex-col items-center gap-1.5">
+          <span className="text-3xl font-bold text-emerald-600">78%</span>
+          <div className="h-2 w-24 overflow-hidden rounded-full bg-muted">
+            <div className="h-full w-[78%] rounded-full bg-emerald-500" />
+          </div>
+          <span className="text-xs text-muted-foreground">After</span>
+        </div>
+      </div>
+      <p className="mt-3 text-center text-xs text-muted-foreground">
+        See exactly what's holding your resume back and fix it in seconds.
+      </p>
+    </div>
+  );
+}
 
 export default function LandingHero() {
   const { isSignedIn } = useAuth();
 
   return (
-    <section className="relative overflow-hidden border-b bg-gradient-to-b from-background to-muted/40">
-      <div className="mx-auto flex max-w-5xl flex-col items-center px-6 py-24 text-center">
-        <div className="mb-6 inline-flex items-center gap-2 rounded-full border bg-background px-4 py-1.5 text-xs font-medium text-muted-foreground shadow-sm">
-          <Sparkles className="h-3.5 w-3.5 text-primary" />
-          AI-powered career co-pilot
-        </div>
-        <h1 className="max-w-3xl text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl">
-          Land more interviews with tailored applications in seconds.
+    <section className="border-b bg-gradient-to-b from-muted/40 to-background px-6 pb-16 pt-20 text-center">
+      <div className="mx-auto max-w-3xl">
+        <h1 className="text-4xl font-extrabold leading-tight tracking-tight sm:text-5xl md:text-[3.5rem]">
+          Applying to jobs has never
+          <br className="hidden sm:block" />
+          <span className="text-primary"> been easier.</span>
         </h1>
-        <p className="mt-6 max-w-2xl text-lg text-muted-foreground">
-          Paste any job posting and instantly generate a tailored resume, cover
-          letter, and match score. Stop rewriting bullets. Start getting
-          callbacks.
+        <p className="mx-auto mt-5 max-w-xl text-lg text-muted-foreground">
+          Paste a job description. Instantly generate a tailored resume, cover
+          letter, and match score — all in one place.
         </p>
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+
+        <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
           {isSignedIn ? (
             <>
-              <Button asChild size="lg">
-                <Link href="/dashboard">
-                  Go to dashboard
+              <Button asChild size="lg" className="px-8">
+                <Link href="/apply">
+                  Tailor a new application
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>
               <Button asChild size="lg" variant="outline">
-                <Link href="/apply">Tailor a new application</Link>
+                <Link href="/dashboard">Go to dashboard</Link>
               </Button>
             </>
           ) : (
             <>
-              <Button asChild size="lg">
+              <Button asChild size="lg" className="px-8">
                 <Link href="/sign-up">
                   Get started free
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>
               <Button asChild size="lg" variant="outline">
-                <Link href="/sign-in">Sign in</Link>
+                <Link href="#how-it-works">See how it works</Link>
               </Button>
             </>
           )}
         </div>
+        {!isSignedIn && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            No credit card required. Free to get started.
+          </p>
+        )}
+
+        <ScorePreview />
       </div>
     </section>
   );
