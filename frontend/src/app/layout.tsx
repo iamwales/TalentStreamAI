@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { ClerkProvider } from "@clerk/nextjs";
+
+import { Providers } from "@/components/providers";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -15,7 +18,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "TalentStreamAI",
   description:
-    "Career co-pilot scaffold: FastAPI, Next.js, Terraform, and room for LangGraph agents.",
+    "AI-powered career co-pilot: tailored resumes, cover letters, and match scores in seconds.",
 };
 
 export default function RootLayout({
@@ -24,12 +27,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        {children}
-      </body>
-    </html>
+    <ClerkProvider>
+      <html lang="en">
+        <body
+          className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        >
+          <Providers>{children}</Providers>
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }
