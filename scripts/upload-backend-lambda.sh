@@ -2,4 +2,4 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-exec python3 "${ROOT}/scripts/deploy_aws.py" "$@"
+exec python3 "${ROOT}/scripts/upload_backend_lambda.py" "$@"

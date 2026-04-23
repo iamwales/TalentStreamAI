@@ -18,12 +18,17 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
     deployment_environment: str | None = None
     openai_api_key: str | None = None
+    app_secrets_arns: str = ""
 
     @property
     def cors_origins_list(self) -> list[str]:
         return [
             origin.strip() for origin in self.cors_origins.split(",") if origin.strip()
         ]
+
+    @property
+    def app_secrets_arn_list(self) -> list[str]:
+        return [arn.strip() for arn in self.app_secrets_arns.split(",") if arn.strip()]
 
 
 settings = Settings()

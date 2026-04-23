@@ -5,6 +5,7 @@ description = "TalentStreamAI FastAPI service"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi==0.115.12",
+  "mangum==0.19.0",
   "uvicorn[standard]==0.34.0",
   "pydantic-settings==2.8.1",
   "langgraph>=0.2.0",
