@@ -27,6 +27,11 @@ class ProfileOut(BaseModel):
     created_at: str
 
 
+class ProfilePatchIn(BaseModel):
+    model_config = _cc()
+    base_resume_id: str
+
+
 class ResumeOut(BaseModel):
     model_config = _cc()
     id: str

@@ -19,6 +19,7 @@ dependencies = [
   "structlog==24.4.0",
   "prometheus-client==0.21.1",
   "beautifulsoup4==4.12.3",
+  "langfuse>=4.5.0",
 ]
 
 [tool.uv]

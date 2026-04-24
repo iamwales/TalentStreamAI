@@ -44,8 +44,8 @@ export default function ResumesPage() {
               <Card className="h-full transition-colors hover:bg-accent/40">
                 <CardContent className="space-y-3 py-5">
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <FileText className="h-4 w-4 text-muted-foreground" />
+                    <div className="flex min-w-0 items-center gap-2">
+                      <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                       <p className="font-medium">{resume.title}</p>
                     </div>
                     {resume.isBase ? <Badge variant="secondary">Base</Badge> : null}

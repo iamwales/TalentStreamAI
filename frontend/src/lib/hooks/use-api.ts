@@ -19,7 +19,8 @@ import type {
   TailorResponse,
 } from "@/lib/types";
 
-const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS !== "false";
+/** Opt in with `NEXT_PUBLIC_USE_MOCKS=true` (default is the real API). */
+const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS === "true";
 
 function useAuthedFetch() {
   const { getToken } = useAuth();
@@ -112,10 +113,12 @@ export function useTailorApplication() {
             method: "POST",
             body: payload,
           }),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["applications"] });
+      queryClient.invalidateQueries({ queryKey: ["application", data.applicationId] });
       queryClient.invalidateQueries({ queryKey: ["resumes"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["profile"] });
     },
   });
 }
@@ -127,14 +130,7 @@ export function useUploadBaseResume() {
   return useMutation<Resume, Error, File>({
     mutationFn: async (file) => {
       if (USE_MOCKS) {
-        await new Promise((r) => setTimeout(r, 600));
-        return {
-          id: "base-1",
-          title: file.name,
-          isBase: true,
-          content: "(parsed resume content will appear here)",
-          createdAt: new Date().toISOString(),
-        } satisfies Resume;
+        return mockApi.uploadResume(file, { asBase: true });
       }
       const form = new FormData();
       form.append("file", file);
@@ -146,6 +142,52 @@ export function useUploadBaseResume() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["profile"] });
       queryClient.invalidateQueries({ queryKey: ["resumes"] });
+      queryClient.invalidateQueries({ queryKey: ["resume"] });
+    },
+  });
+}
+
+/** Upload a resume file without making it the profile base (see POST /api/v1/resumes). */
+export function useUploadResume() {
+  const fetcher = useAuthedFetch();
+  const queryClient = useQueryClient();
+
+  return useMutation<Resume, Error, File>({
+    mutationFn: async (file) => {
+      if (USE_MOCKS) {
+        return mockApi.uploadResume(file, { asBase: false });
+      }
+      const form = new FormData();
+      form.append("file", file);
+      return fetcher<Resume>("/api/v1/resumes", {
+        method: "POST",
+        body: form,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["profile"] });
+      queryClient.invalidateQueries({ queryKey: ["resumes"] });
+      queryClient.invalidateQueries({ queryKey: ["resume"] });
+    },
+  });
+}
+
+export function useSetBaseResume() {
+  const fetcher = useAuthedFetch();
+  const queryClient = useQueryClient();
+
+  return useMutation<Profile, Error, string>({
+    mutationFn: (resumeId) =>
+      USE_MOCKS
+        ? mockApi.setBaseResume(resumeId)
+        : fetcher<Profile>("/api/v1/profile", {
+            method: "PATCH",
+            body: { baseResumeId: resumeId },
+          }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["profile"] });
+      queryClient.invalidateQueries({ queryKey: ["resumes"] });
+      queryClient.invalidateQueries({ queryKey: ["resume"] });
     },
   });
 }

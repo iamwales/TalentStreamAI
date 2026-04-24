@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { ArrowLeft, Download } from "lucide-react";
+import { useParams, useRouter } from "next/navigation";
+import { useRef } from "react";
+import { ArrowLeft, Download, Upload } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,12 +14,38 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useResume } from "@/lib/hooks/use-api";
+import { toast } from "sonner";
+
+import { getErrorMessage } from "@/lib/error-message";
+import {
+  useResume,
+  useSetBaseResume,
+  useUploadBaseResume,
+} from "@/lib/hooks/use-api";
+
+const ACCEPTED = ".pdf,.doc,.docx,.txt";
 
 export default function ResumeDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
+  const router = useRouter();
+  const uploadInputRef = useRef<HTMLInputElement>(null);
   const { data: resume, isLoading } = useResume(id);
+  const setBase = useSetBaseResume();
+  const uploadBase = useUploadBaseResume();
+
+  function handleUploadNewBase(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    uploadBase.mutate(file, {
+      onSuccess: (data) => {
+        toast.success("New base resume uploaded.");
+        router.push(`/resume/${data.id}`);
+      },
+      onError: (err) => toast.error(getErrorMessage(err)),
+    });
+  }
 
   if (isLoading) {
     return <Skeleton className="h-96 w-full" />;
@@ -52,8 +79,42 @@ export default function ResumeDetailPage() {
               Created {new Date(resume.createdAt).toLocaleDateString()}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {resume.isBase ? <Badge variant="secondary">Base</Badge> : null}
+            {resume.isBase ? null : (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={setBase.isPending || uploadBase.isPending}
+                onClick={() => {
+                  setBase.mutate(resume.id, {
+                    onSuccess: () =>
+                      toast.success("This resume is now your base resume."),
+                    onError: (e) => toast.error(getErrorMessage(e)),
+                  });
+                }}
+              >
+                Set as base
+              </Button>
+            )}
+            <input
+              ref={uploadInputRef}
+              type="file"
+              accept={ACCEPTED}
+              className="hidden"
+              onChange={handleUploadNewBase}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={uploadBase.isPending || setBase.isPending}
+              onClick={() => uploadInputRef.current?.click()}
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              Upload new base resume
+            </Button>
             <Button variant="outline" size="sm">
               <Download className="mr-2 h-4 w-4" />
               Download PDF

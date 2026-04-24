@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     openrouter_referer: str | None = None
     openrouter_title: str | None = None
 
+    # Product: reported match % for the AI-tailored resume (floor/cap; not a third-party ATS guarantee)
+    min_tailored_match_score: int = 90
+    max_reported_match_score: int = 99
+
     # --- Observability ---
     log_level: str = "INFO"
     log_json: bool = False

@@ -107,13 +107,15 @@ const applications: Application[] = [
   },
 ];
 
-const stats: DashboardStats = {
+let mockProfileState: Profile = { ...profile };
+let mockResumesState: Resume[] = resumes.map((r) => ({ ...r }));
+
+const baseStats: Omit<DashboardStats, "resumesGenerated"> = {
   applications: applications.length,
   interviews: applications.filter((a) => a.status === "interview").length,
   averageMatchScore: Math.round(
     applications.reduce((sum, a) => sum + a.matchScore, 0) / applications.length,
   ),
-  resumesGenerated: resumes.filter((r) => !r.isBase).length,
 };
 
 async function delay<T>(value: T, ms = 350): Promise<T> {
@@ -123,10 +125,13 @@ async function delay<T>(value: T, ms = 350): Promise<T> {
 
 export const mockApi = {
   async getProfile(): Promise<Profile> {
-    return delay(profile);
+    return delay({ ...mockProfileState });
   },
   async getStats(): Promise<DashboardStats> {
-    return delay(stats);
+    return delay({
+      ...baseStats,
+      resumesGenerated: mockResumesState.filter((r) => !r.isBase).length,
+    });
   },
   async listApplications(): Promise<Application[]> {
     return delay(applications);
@@ -135,10 +140,46 @@ export const mockApi = {
     return delay(applications.find((a) => a.id === id));
   },
   async listResumes(): Promise<Resume[]> {
-    return delay(resumes);
+    return delay(mockResumesState.map((r) => ({ ...r })));
   },
   async getResume(id: string): Promise<Resume | undefined> {
-    return delay(resumes.find((r) => r.id === id));
+    return delay(mockResumesState.find((r) => r.id === id));
+  },
+  async setBaseResume(resumeId: string): Promise<Profile> {
+    const found = mockResumesState.find((r) => r.id === resumeId);
+    if (!found) {
+      await delay(null, 0);
+      throw new Error("Resume not found");
+    }
+    mockResumesState = mockResumesState.map((r) => ({
+      ...r,
+      isBase: r.id === resumeId,
+    }));
+    mockProfileState = { ...mockProfileState, baseResumeId: resumeId };
+    return delay({ ...mockProfileState });
+  },
+  /**
+   * Mirrors POST /api/v1/profile/base-resume (asBase) vs POST /api/v1/resumes (not asBase).
+   */
+  async uploadResume(
+    file: File,
+    opts: { asBase: boolean },
+  ): Promise<Resume> {
+    await new Promise((r) => setTimeout(r, 500));
+    const id = `r-mock-${Date.now()}`;
+    if (opts.asBase) {
+      mockResumesState = mockResumesState.map((r) => ({ ...r, isBase: false }));
+      mockProfileState = { ...mockProfileState, baseResumeId: id };
+    }
+    const newR: Resume = {
+      id,
+      title: file.name.replace(/\.[^/.]+$/, "") || file.name,
+      isBase: opts.asBase,
+      content: "(parsed resume content will appear here)",
+      createdAt: new Date().toISOString(),
+    };
+    mockResumesState = [...mockResumesState, newR];
+    return delay({ ...newR });
   },
   async tailor(req: TailorRequest): Promise<TailorResponse> {
     void req;

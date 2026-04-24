@@ -37,11 +37,18 @@ def _build_match_analysis(gap: dict[str, Any]) -> dict[str, Any]:
     else:
         base = 60
     original = max(25, min(92, base - 8))
-    improved = min(99, max(original + 4, min(99, base + 12)))
+    raw_tailored = min(99, max(original + 4, min(99, base + 12)))
+    lo = settings.min_tailored_match_score
+    hi = settings.max_reported_match_score
+    tailored = max(lo, min(hi, raw_tailored))
+    # Pre-tailored score should stay below the post-AI score so the lift is visible.
+    if original >= tailored:
+        original = max(20, min(75, tailored - 12))
+    improvement = tailored - original
     return {
         "originalScore": original,
-        "tailoredScore": improved,
-        "improvement": improved - original,
+        "tailoredScore": tailored,
+        "improvement": improvement,
         "whatWeImproved": [
             "Realigned phrasing to reflect keywords already present in your history.",
             "Tightened bullets toward role-specific outcomes where supported by the resume text.",

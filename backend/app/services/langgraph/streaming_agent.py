@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
 import time
-from collections import Counter
 from functools import lru_cache
 from typing import Any, cast
 
@@ -13,6 +13,7 @@ from typing_extensions import TypedDict
 from app.core.config import settings
 from app.services.llm.client import LlmClient, LlmMessage
 from app.services.llm.schemas import GapAnalysis, TextArtifact
+from app.services.resume_weave import top_keywords_from_text, weave_keywords_stub
 
 
 def _sanitize_artifact(text: str) -> str:
@@ -30,18 +31,6 @@ def _sanitize_artifact(text: str) -> str:
     return cleaned
 
 
-def _keywords(text: str, *, k: int = 20) -> list[str]:
-    words: list[str] = []
-    for raw in (text or "").lower().replace("/", " ").replace("-", " ").split():
-        w = "".join(ch for ch in raw if ch.isalnum())
-        if len(w) < 3:
-            continue
-        if w in {"the", "and", "for", "with", "you", "your", "our", "are", "will", "can", "have"}:
-            continue
-        words.append(w)
-    return [w for (w, _) in Counter(words).most_common(k)]
-
-
 class AgentState(TypedDict, total=False):
     resume_text: str
     job_description_text: str
@@ -51,9 +40,39 @@ class AgentState(TypedDict, total=False):
     gmail_draft: str
 
 
+def _jd_tokens_not_in_resume(jd_text: str, resume_text: str) -> tuple[list[str], list[str]]:
+    """Return (missing, matched) using JD top keywords vs. whole-word presence in the resume."""
+    res = (resume_text or "").lower()
+    seen_jd: list[str] = []
+    for k in top_keywords_from_text(jd_text, k=50):
+        if k in seen_jd:
+            continue
+        seen_jd.append(k)
+    missing: list[str] = []
+    matched: list[str] = []
+    for k in seen_jd:
+        if len(k) < 2:
+            continue
+        if re.search(rf"(?<!\w){re.escape(k)}(?!\w)", res):
+            if len(matched) < 18:
+                matched.append(k)
+        else:
+            if len(missing) < 22:
+                missing.append(k)
+    return missing[:18], matched[:18]
+
+
 async def _analyze_stub(state: AgentState) -> dict[str, Any]:
-    jd_keywords = _keywords(state["job_description_text"])
-    return {"gap_analysis": {"missing_keywords": jd_keywords[:10], "matched_keywords": [], "summary": ""}}
+    miss, ex = _jd_tokens_not_in_resume(
+        state["job_description_text"] or "", state.get("resume_text") or ""
+    )
+    return {
+        "gap_analysis": {
+            "missing_keywords": miss,
+            "matched_keywords": ex,
+            "summary": "",
+        }
+    }
 
 
 async def _analyze_llm(state: AgentState) -> dict[str, Any]:
@@ -81,10 +100,10 @@ async def _analyze_llm(state: AgentState) -> dict[str, Any]:
 
 async def _draft_resume_stub(state: AgentState) -> dict[str, Any]:
     missing = (state.get("gap_analysis") or {}).get("missing_keywords") or []
-    content = (
-        "TAILORED RESUME (scaffold)\n"
-        f"Keywords to weave in: {', '.join(missing[:12])}\n\n"
-        f"Source resume reference:\n{state['resume_text'][:1000]}"
+    content = weave_keywords_stub(
+        state["resume_text"] or "",
+        missing,
+        state.get("job_description_text") or "",
     )
     return {"tailored_resume": _cap(content)}
 
@@ -92,18 +111,23 @@ async def _draft_resume_stub(state: AgentState) -> dict[str, Any]:
 async def _draft_resume_llm(state: AgentState) -> dict[str, Any]:
     client = LlmClient()
     sys = (
-        "You rewrite resumes for ATS.\n"
-        "Return ONLY a JSON object with schema: {\"content\": string}.\n"
+        "You output the full rewritten resume as plain text for a specific job posting.\n"
+        "Return ONLY a JSON object: {\"content\": string}.\n"
         "Rules:\n"
-        "- Treat the RESUME as the ONLY source of truth.\n"
-        "- Do NOT invent employers, titles, degrees, dates, certifications, metrics, projects, or tools not present in the RESUME.\n"
-        "- Do NOT add job-description-only keywords (from missing_keywords) unless they already appear in the RESUME.\n"
-        "- You MAY rephrase and reorder content to better match the job description while staying truthful.\n"
-        "- Output plain text (no markdown), no placeholders like [Your Name].\n"
+        "- Do NOT use headings like 'TAILORED RESUME', 'scaffold', or a separate 'keywords to weave' list. "
+        "The content must be only the resume itself.\n"
+        "- The RESUME is the source of truth for employers, roles, dates, education, and credentials. "
+        "Do not fabricate experience or employers.\n"
+        "- The array missing_keywords lists terms that appear in the job description but are absent or under-emphasized in the resume. "
+        "You MUST work each of those terms into the full resume naturally (summary, bullets, skills, or a compact line) "
+        "using truthful phrasing: e.g. 'Exposure to …', 'Coursework in …', 'Working alongside teams using …' when not a past job focus.\n"
+        "- You MAY rephrase and reorder existing bullets to mirror the JOB_DESCRIPTION’s vocabulary where it still reflects the same facts in the resume.\n"
+        "- No markdown code fences, no [bracket placeholders], plain text.\n"
     )
     user = (
         f"JOB_DESCRIPTION:\n{state['job_description_text']}\n\n"
-        f"GAP_ANALYSIS_JSON:\n{json.dumps(state.get('gap_analysis') or {}, ensure_ascii=True)}\n\n"
+        f"GAP_ANALYSIS_JSON (use missing_keywords; weave each into the resume body):\n"
+        f"{json.dumps(state.get('gap_analysis') or {}, ensure_ascii=True)}\n\n"
         f"RESUME:\n{state['resume_text']}\n"
     )
     obj = await client.chat_json(messages=[LlmMessage(role="system", content=sys), LlmMessage(role="user", content=user)])
@@ -112,11 +136,13 @@ async def _draft_resume_llm(state: AgentState) -> dict[str, Any]:
 
 
 async def _draft_cover_letter_stub(state: AgentState) -> dict[str, Any]:
-    missing = (state.get("gap_analysis") or {}).get("missing_keywords") or []
+    kws = (state.get("gap_analysis") or {}).get("missing_keywords") or []
+    klist = ", ".join(str(x) for x in kws[:8]) if kws else "the role’s requirements"
     content = (
-        "COVER LETTER (scaffold)\n"
-        "I am excited to apply. I bring relevant experience aligned with the role.\n\n"
-        f"Role keywords: {', '.join(missing[:10])}"
+        f"Dear Hiring Manager,\n\n"
+        f"I am writing to express my interest in the position. My background aligns with {klist}, and I am eager to contribute in line with the priorities you describe. "
+        f"I would welcome the opportunity to discuss how my experience supports your team.\n\n"
+        f"Sincerely,\n"
     )
     return {"cover_letter": _cap(content)}
 
@@ -148,10 +174,11 @@ async def _draft_cover_letter_llm(state: AgentState) -> dict[str, Any]:
 
 async def _draft_gmail_stub(state: AgentState) -> dict[str, Any]:
     content = (
-        "GMAIL DRAFT (scaffold)\n"
-        "Subject: Application for the role\n\n"
+        "Subject: Application for the open role\n\n"
         "Hi Hiring Team,\n\n"
-        "I just applied and wanted to briefly introduce myself...\n"
+        "I have submitted an application and wanted to share my continued interest. "
+        "I believe my experience aligns well with what you are looking for and I would be glad to discuss further at your convenience.\n\n"
+        "Best regards,\n"
     )
     return {"gmail_draft": _cap(content)}
 
