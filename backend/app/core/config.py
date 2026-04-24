@@ -19,7 +19,15 @@ class Settings(BaseSettings):
     api_port: int = 8000
     cors_origins: str = "http://localhost:3000"
     deployment_environment: str | None = None
-    openai_api_key: str | None = None
+    # Chat completions: OPENROUTER_API_KEY when using OpenRouter; else OPENAI_API_KEY alone.
+    openrouter_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("OPENROUTER_API_KEY", "openrouter_api_key"),
+    )
+    openai_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("OPENAI_API_KEY", "openai_api_key"),
+    )
 
     auth_mode: str = "clerk_jwks"
     clerk_jwks_url: str | None = None
@@ -43,10 +51,6 @@ class Settings(BaseSettings):
 
     agent_mode: str = "stub"
     llm_base_url: str = "https://api.openai.com"
-    llm_api_key: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("LLM_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY"),
-    )
     llm_model: str = "gpt-4.1-mini"
     llm_timeout_seconds: float = 45.0
     llm_max_tokens: int = 1800
@@ -66,12 +70,46 @@ class Settings(BaseSettings):
     # Set to enable OpenTelemetry gRPC/HTTP export (requires optional otel packages)
     otel_exporter_otlp_endpoint: str | None = None
     service_name: str = "talentstreamai-api"
+    # Langfuse (LLM traces; optional — leave unset for local/stub)
+    langfuse_public_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("LANGFUSE_PUBLIC_KEY", "langfuse_public_key"),
+    )
+    langfuse_secret_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("LANGFUSE_SECRET_KEY", "langfuse_secret_key"),
+    )
+    langfuse_base_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "LANGFUSE_BASE_URL", "LANGFUSE_HOST", "langfuse_host"
+        ),
+    )
+    langfuse_tracing_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("LANGFUSE_TRACING_ENABLED", "langfuse_tracing_enabled"),
+    )
 
     @property
     def cors_origins_list(self) -> list[str]:
         return [
             origin.strip() for origin in self.cors_origins.split(",") if origin.strip()
         ]
+
+    @property
+    def chat_completions_api_key(self) -> str | None:
+        """Bearer for ``/v1/chat/completions``: ``OPENROUTER_API_KEY`` if set, else ``OPENAI_API_KEY``.
+
+        With both set, OpenRouter is used for completions; keep ``OPENAI_API_KEY`` for other
+        uses (e.g. tools). Langfuse uses only ``LANGFUSE_*`` keys, not OpenAI for tracing.
+        """
+        orv = (self.openrouter_api_key or "").strip()
+        oai = (self.openai_api_key or "").strip()
+        if orv:
+            return orv
+        if oai:
+            return oai
+        return None
 
     @field_validator("auth_mode", "agent_mode", "upload_storage", mode="before")
     @classmethod

@@ -66,6 +66,8 @@ export default function ApplyPage() {
     const [jobDescription, setJobDescription] = useState("");
     const [result, setResult] = useState<TailorResponse | null>(null);
 
+    const hasBaseResume = baseResumes.length > 0;
+    const resumesReady = !resumesLoading;
     const effectiveResumeId = selectedResumeId ?? defaultResumeId;
     const usingNonBaseFile =
         Boolean(selectedResumeId) &&
@@ -120,9 +122,22 @@ export default function ApplyPage() {
                     Tailor a new application
                 </h1>
                 <p className='mt-1 text-muted-foreground'>
-                    Your base resume is the starting point; upload a new file if
-                    you need a different one. Then paste the job and we&apos;ll
-                    generate a tailored resume, cover letter, and match score.
+                    {!resumesReady ? (
+                        <>Loading your resumes…</>
+                    ) : hasBaseResume ? (
+                        <>
+                            Your base resume is the starting point; upload a
+                            new file if you need a different one. Then paste the
+                            job and we&apos;ll generate a tailored resume, cover
+                            letter, and match score.
+                        </>
+                    ) : (
+                        <>
+                            Add a base resume from onboarding first. After that,
+                            you can paste the job and we&apos;ll generate a
+                            tailored resume, cover letter, and match score.
+                        </>
+                    )}
                 </p>
             </div>
 
@@ -133,9 +148,22 @@ export default function ApplyPage() {
                             1. Base resume
                         </CardTitle>
                         <CardDescription>
-                            Only your current base appears here. Upload a file
-                            on the right to use a different resume; by default
-                            it becomes your new base unless you opt out below.
+                            {!resumesReady ? (
+                                <>Loading…</>
+                            ) : hasBaseResume ? (
+                                <>
+                                    Only your current base appears here. Upload
+                                    a file on the right to use a different
+                                    resume; by default it becomes your new base
+                                    unless you opt out below.
+                                </>
+                            ) : (
+                                <>
+                                    Complete onboarding to add your base
+                                    resume. You can return here to tailor
+                                    applications once it&apos;s saved.
+                                </>
+                            )}
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -145,20 +173,26 @@ export default function ApplyPage() {
                                 <Skeleton className='h-20' />
                             </div>
                         ) : (
-                            <div className='grid grid-cols-2 gap-6 lg:flex-row lg:items-stretch'>
+                            <div
+                                className={cn(
+                                    "grid gap-6 lg:items-stretch",
+                                    hasBaseResume
+                                        ? "grid-cols-2"
+                                        : "grid-cols-1",
+                                )}
+                            >
                                 <div className='min-w-0 flex-1 space-y-3'>
                                     {baseResumes.length === 0 ? (
                                         <div className='rounded-md border border-dashed p-5 text-sm text-muted-foreground'>
                                             <p>
-                                                No base resume yet. Use
-                                                &quot;Upload a resume&quot; on
-                                                the right, or add one from
-                                                onboarding.
+                                                No base resume yet. Upload your
+                                                resume in onboarding to get
+                                                started.
                                             </p>
                                             <Button
                                                 asChild
                                                 className='mt-3'
-                                                variant='outline'
+                                                variant='primary'
                                                 size='sm'
                                             >
                                                 <Link href='/onboarding'>
@@ -209,67 +243,71 @@ export default function ApplyPage() {
                                     ) : null}
                                 </div>
 
-                                <div className='flex flex-col justify-between gap-3 rounded-lg border border-dashed bg-muted/20 p-4 '>
-                                    <div>
-                                        <p className='text-sm font-medium'>
-                                            Upload a resume
-                                        </p>
-                                        <p className='mt-1 text-xs text-muted-foreground'>
-                                            PDF, DOC, DOCX, or TXT. New uploads
-                                            are used for this tailoring run.
-                                        </p>
-                                    </div>
-                                    <div className='space-y-3'>
-                                        <input
-                                            ref={applyUploadInputRef}
-                                            type='file'
-                                            accept={ACCEPTED}
-                                            className='hidden'
-                                            onChange={handleApplyUploadChange}
-                                        />
-                                        <Button
-                                            type='button'
-                                            variant='outline'
-                                            className='w-full'
-                                            disabled={isUploading}
-                                            onClick={() =>
-                                                applyUploadInputRef.current?.click()
-                                            }
-                                        >
-                                            {isUploading ? (
-                                                <>
-                                                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                                                    Uploading…
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Upload className='mr-2 h-4 w-4' />
-                                                    Choose file
-                                                </>
-                                            )}
-                                        </Button>
-                                        <label className='flex cursor-pointer items-start gap-2 text-xs text-muted-foreground'>
+                                {hasBaseResume ? (
+                                    <div className='flex flex-col justify-between gap-3 rounded-lg border border-dashed bg-muted/20 p-4 '>
+                                        <div>
+                                            <p className='text-sm font-medium'>
+                                                Upload a resume
+                                            </p>
+                                            <p className='mt-1 text-xs text-muted-foreground'>
+                                                PDF, DOC, DOCX, or TXT. New
+                                                uploads are used for this
+                                                tailoring run.
+                                            </p>
+                                        </div>
+                                        <div className='space-y-3'>
                                             <input
-                                                type='checkbox'
-                                                className='mt-0.5 h-4 w-4 shrink-0 rounded border border-input'
-                                                checked={setUploadAsBase}
-                                                onChange={(e) =>
-                                                    setSetUploadAsBase(
-                                                        e.target.checked,
-                                                    )
-                                                }
-                                                disabled={isUploading}
+                                                ref={applyUploadInputRef}
+                                                type='file'
+                                                accept={ACCEPTED}
+                                                className='hidden'
+                                                onChange={handleApplyUploadChange}
                                             />
-                                            <span>
-                                                Set uploaded file as my base
-                                                resume. Uncheck to add the file
-                                                without changing which resume is
-                                                your saved base (it will still
-                                                be selected for this run).
-                                            </span>
-                                        </label>
+                                            <Button
+                                                type='button'
+                                                variant='outline'
+                                                className='w-full'
+                                                disabled={isUploading}
+                                                onClick={() =>
+                                                    applyUploadInputRef.current?.click()
+                                                }
+                                            >
+                                                {isUploading ? (
+                                                    <>
+                                                        <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                                                        Uploading…
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Upload className='mr-2 h-4 w-4' />
+                                                        Choose file
+                                                    </>
+                                                )}
+                                            </Button>
+                                            <label className='flex cursor-pointer items-start gap-2 text-xs text-muted-foreground'>
+                                                <input
+                                                    type='checkbox'
+                                                    className='mt-0.5 h-4 w-4 shrink-0 rounded border border-input'
+                                                    checked={setUploadAsBase}
+                                                    onChange={(e) =>
+                                                        setSetUploadAsBase(
+                                                            e.target.checked,
+                                                        )
+                                                    }
+                                                    disabled={isUploading}
+                                                />
+                                                <span>
+                                                    Set uploaded file as my base
+                                                    resume. Uncheck to add the
+                                                    file without changing which
+                                                    resume is your saved base (it
+                                                    will still be selected for
+                                                    this run).
+                                                </span>
+                                            </label>
+                                        </div>
                                     </div>
-                                </div>
+                                ) : null}
                             </div>
                         )}
                     </CardContent>

@@ -56,7 +56,7 @@ graph TB
 2. **Base resume**: User uploads PDF/DOCX; text is extracted, stored in **`documents`**, and **`user_profiles.base_resume_id`** is set.
 3. **Tailor run**: User supplies **job URL** and/or **pasted job description**. The orchestrator resolves JD text, loads the base resume, and runs the **LangGraph** pipeline.
 4. **Outputs**: **Tailored resume** (new `documents` row), **application** row with **match analysis**, **cover letter**, **draft email** metadata, and **dashboard**-visible stats.
-5. **Observability**: **structlog** context, **Prometheus** `/api/v1/metrics`, LLM **token/latency** logging where applicable.
+5. **Observability**: **structlog** context, **Prometheus** `/api/v1/metrics`, LLM **token/latency** logging, and optional **Langfuse** traces for **OpenAI-compatible** calls (`LlmClient` + LangChain `ChatOpenAI` in the legacy workflow) when `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set.
 
 ---
 
@@ -187,7 +187,7 @@ graph LR
 | Gap analysis | Frequency / token overlap heuristics | `gpt-*` via `LlmClient` + `GapAnalysis` |
 | Resume | `resume_weave` keyword weaving + JD hint | JSON `content` field, full resume |
 | Cover letter / email | Short templates | JSON `TextArtifact` |
-| External API | None | `LLM_BASE_URL` + `LLM_API_KEY` (OpenAI-compatible) |
+| External API | None | `LLM_BASE_URL` + `OPENROUTER_API_KEY` and/or `OPENAI_API_KEY` (OpenAI-compatible) |
 
 **Production safety** (`app/main.py`): in deploy-like environments, **`AGENT_MODE=llm`**, **`UPLOAD_STORAGE=s3`**, **`AUTH_MODE=clerk_jwks`** are enforced to avoid running stub/anonymous in prod.
 

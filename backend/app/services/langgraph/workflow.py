@@ -1,6 +1,5 @@
 """Complete LangGraph workflow for TalentStreamAI with document generation."""
 
-import os
 from typing import Any, Optional
 
 from langchain_openai import ChatOpenAI
@@ -12,6 +11,7 @@ from app.tools.ats_scorer import ats_score_resume
 from app.tools.job_fetcher import fetch_job_description
 from app.tools.resume_parser import parse_resume
 from app.core.config import settings
+from app.services.observability.langfuse_tracing import get_tracing_client, ensure_langfuse_ready
 
 
 class TalentStreamState(BaseModel):
@@ -43,14 +43,11 @@ def _langchain_openai_base_url() -> str:
 
 def _get_llm() -> ChatOpenAI:
     """OpenAI-compatible chat model (OpenAI, OpenRouter, or other /v1 hosts)."""
-    api_key = (
-        settings.llm_api_key
-        or settings.openai_api_key
-        or os.environ.get("OPENAI_API_KEY")
-    )
+    ensure_langfuse_ready()
+    api_key = settings.chat_completions_api_key
     if not api_key:
         raise ValueError(
-            "No LLM API key configured. Set LLM_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY.",
+            "No API key for chat completions. Set OPENROUTER_API_KEY and/or OPENAI_API_KEY.",
         )
 
     default_headers: dict[str, str] = {}
@@ -68,6 +65,10 @@ def _get_llm() -> ChatOpenAI:
     }
     if default_headers:
         params["default_headers"] = default_headers
+    if get_tracing_client() is not None:
+        from langfuse.langchain import CallbackHandler
+
+        params["callbacks"] = [CallbackHandler()]
     return ChatOpenAI(**params)
 
 

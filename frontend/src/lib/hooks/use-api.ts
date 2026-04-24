@@ -9,7 +9,6 @@ import {
 } from "@tanstack/react-query";
 
 import { apiFetch } from "@/lib/api";
-import { mockApi } from "@/lib/mock-data";
 import type {
   Application,
   DashboardStats,
@@ -18,9 +17,6 @@ import type {
   TailorRequest,
   TailorResponse,
 } from "@/lib/types";
-
-/** Opt in with `NEXT_PUBLIC_USE_MOCKS=true` (default is the real API). */
-const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS === "true";
 
 function useAuthedFetch() {
   const { getToken } = useAuth();
@@ -40,8 +36,7 @@ export function useProfile(
   const fetcher = useAuthedFetch();
   return useQuery<Profile>({
     queryKey: ["profile"],
-    queryFn: () =>
-      USE_MOCKS ? mockApi.getProfile() : fetcher<Profile>("/api/v1/profile"),
+    queryFn: () => fetcher<Profile>("/api/v1/profile"),
     ...opts,
   });
 }
@@ -50,10 +45,7 @@ export function useDashboardStats() {
   const fetcher = useAuthedFetch();
   return useQuery<DashboardStats>({
     queryKey: ["dashboard-stats"],
-    queryFn: () =>
-      USE_MOCKS
-        ? mockApi.getStats()
-        : fetcher<DashboardStats>("/api/v1/dashboard/stats"),
+    queryFn: () => fetcher<DashboardStats>("/api/v1/dashboard/stats"),
   });
 }
 
@@ -61,10 +53,7 @@ export function useApplications() {
   const fetcher = useAuthedFetch();
   return useQuery<Application[]>({
     queryKey: ["applications"],
-    queryFn: () =>
-      USE_MOCKS
-        ? mockApi.listApplications()
-        : fetcher<Application[]>("/api/v1/applications"),
+    queryFn: () => fetcher<Application[]>("/api/v1/applications"),
   });
 }
 
@@ -73,10 +62,7 @@ export function useApplication(id: string | undefined) {
   return useQuery<Application | undefined>({
     queryKey: ["application", id],
     enabled: Boolean(id),
-    queryFn: () =>
-      USE_MOCKS
-        ? mockApi.getApplication(id!)
-        : fetcher<Application>(`/api/v1/applications/${id}`),
+    queryFn: () => fetcher<Application>(`/api/v1/applications/${id}`),
   });
 }
 
@@ -84,8 +70,7 @@ export function useResumes() {
   const fetcher = useAuthedFetch();
   return useQuery<Resume[]>({
     queryKey: ["resumes"],
-    queryFn: () =>
-      USE_MOCKS ? mockApi.listResumes() : fetcher<Resume[]>("/api/v1/resumes"),
+    queryFn: () => fetcher<Resume[]>("/api/v1/resumes"),
   });
 }
 
@@ -94,10 +79,7 @@ export function useResume(id: string | undefined) {
   return useQuery<Resume | undefined>({
     queryKey: ["resume", id],
     enabled: Boolean(id),
-    queryFn: () =>
-      USE_MOCKS
-        ? mockApi.getResume(id!)
-        : fetcher<Resume>(`/api/v1/resumes/${id}`),
+    queryFn: () => fetcher<Resume>(`/api/v1/resumes/${id}`),
   });
 }
 
@@ -107,12 +89,10 @@ export function useTailorApplication() {
 
   return useMutation<TailorResponse, Error, TailorRequest>({
     mutationFn: (payload) =>
-      USE_MOCKS
-        ? mockApi.tailor(payload)
-        : fetcher<TailorResponse>("/api/v1/applications/tailor", {
-            method: "POST",
-            body: payload,
-          }),
+      fetcher<TailorResponse>("/api/v1/applications/tailor", {
+        method: "POST",
+        body: payload,
+      }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["applications"] });
       queryClient.invalidateQueries({ queryKey: ["application", data.applicationId] });
@@ -129,9 +109,6 @@ export function useUploadBaseResume() {
 
   return useMutation<Resume, Error, File>({
     mutationFn: async (file) => {
-      if (USE_MOCKS) {
-        return mockApi.uploadResume(file, { asBase: true });
-      }
       const form = new FormData();
       form.append("file", file);
       return fetcher<Resume>("/api/v1/profile/base-resume", {
@@ -154,9 +131,6 @@ export function useUploadResume() {
 
   return useMutation<Resume, Error, File>({
     mutationFn: async (file) => {
-      if (USE_MOCKS) {
-        return mockApi.uploadResume(file, { asBase: false });
-      }
       const form = new FormData();
       form.append("file", file);
       return fetcher<Resume>("/api/v1/resumes", {
@@ -178,12 +152,10 @@ export function useSetBaseResume() {
 
   return useMutation<Profile, Error, string>({
     mutationFn: (resumeId) =>
-      USE_MOCKS
-        ? mockApi.setBaseResume(resumeId)
-        : fetcher<Profile>("/api/v1/profile", {
-            method: "PATCH",
-            body: { baseResumeId: resumeId },
-          }),
+      fetcher<Profile>("/api/v1/profile", {
+        method: "PATCH",
+        body: { baseResumeId: resumeId },
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["profile"] });
       queryClient.invalidateQueries({ queryKey: ["resumes"] });

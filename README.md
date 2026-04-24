@@ -54,7 +54,8 @@ Located in `backend/app/tools/`:
 Required in `.env`:
 | Key | Description |
 | --- | --- |
-| `OPENAI_API_KEY` | OpenAI API key for LLM calls (GPT-4o) |
+| `OPENROUTER_API_KEY` / `OPENAI_API_KEY` | At least one for `AGENT_MODE=llm`: OpenRouter for chat if set, else `OPENAI_API_KEY` (see `.env.example`). |
+| `LANGFUSE_*` | Optional: Langfuse keys for API-side LLM observability (see `.env.example`). |
 
 ## Prerequisites
 
@@ -101,7 +102,9 @@ Both FastAPI (`pydantic-settings`) and Next.js (via `dotenv-cli` in `frontend/pa
 | `CORS_ORIGINS` | API | Comma-separated browser origins allowed to call the API. |
 | `NEXT_PUBLIC_API_URL` | UI (build + browser) | Public API base URL the browser calls. Leave empty for production builds that should call same-origin `/api/*` through CloudFront. |
 | `DEPLOYMENT_ENVIRONMENT` | API (`/api/v1/health` metadata) | Optional label such as `local`, `dev`, `staging`, or `prod`. |
-| `OPENAI_API_KEY` | API | OpenAI API key for LLM calls (GPT-4o). Required for `/api/v1/apply` endpoint. |
+| `OPENROUTER_API_KEY` | API | OpenRouter key; used for chat when set (with `LLM_BASE_URL` for OpenRouter). |
+| `OPENAI_API_KEY` | API | Used for chat when `OPENROUTER_API_KEY` is unset; optional when OpenRouter is set. |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | API | Optional. [Langfuse](https://langfuse.com) project keys for LLM tracing; set with `LANGFUSE_BASE_URL` (or `LANGFUSE_HOST`) for EU/US/self-hosted. |
 
 ## Run the full stack in Docker
 
