@@ -51,7 +51,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </nav>
           </div>
           <div className="flex items-center gap-3">
-            <UserButton afterSignOutUrl="/" />
+            <UserButton />
           </div>
         </div>
         <nav className="flex gap-1 border-t px-4 py-2 md:hidden">

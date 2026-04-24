@@ -140,6 +140,7 @@ export const mockApi = {
   async getResume(id: string): Promise<Resume | undefined> {
     return delay(resumes.find((r) => r.id === id));
   },
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async tailor(_req: TailorRequest): Promise<TailorResponse> {
     const id = `a-${Date.now()}`;
     const resumeId = `r-${Date.now()}`;

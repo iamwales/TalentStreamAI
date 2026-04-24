@@ -1,5 +1,9 @@
 import { SignUp } from "@clerk/nextjs";
 
+export function generateStaticParams() {
+  return [];
+}
+
 export default function SignUpPage() {
   return (
     <div className="w-full max-w-md space-y-6">

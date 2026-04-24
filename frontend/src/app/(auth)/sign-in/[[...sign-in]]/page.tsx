@@ -1,5 +1,9 @@
 import { SignIn } from "@clerk/nextjs";
 
+export function generateStaticParams() {
+  return [];
+}
+
 export default function SignInPage() {
   return (
     <div className="w-full max-w-md space-y-6">

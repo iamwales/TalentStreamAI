@@ -40,7 +40,7 @@ export default function OnboardingPage() {
           <Link href="/" className="text-lg font-semibold tracking-tight">
             TalentStream<span className="text-primary">AI</span>
           </Link>
-          <UserButton afterSignOutUrl="/" />
+          <UserButton />
         </div>
       </header>
 

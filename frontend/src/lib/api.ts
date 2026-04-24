@@ -63,15 +63,18 @@ export async function apiFetch<T>(
   const parsed = text ? safeJsonParse(text) : undefined;
 
   if (!response.ok) {
-    const message =
-      (parsed &&
-        typeof parsed === "object" &&
-        parsed !== null &&
-        "detail" in parsed &&
-        typeof (parsed as { detail: unknown }).detail === "string" &&
-        (parsed as { detail: string }).detail) ||
-      response.statusText ||
-      "Request failed";
+    let message = "Request failed";
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "detail" in parsed &&
+      typeof (parsed as { detail: unknown }).detail === "string"
+    ) {
+      message = (parsed as { detail: string }).detail;
+    } else if (response.statusText) {
+      message = response.statusText;
+    }
     throw new ApiError(message, response.status, parsed);
   }
 
