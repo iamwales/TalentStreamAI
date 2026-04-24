@@ -11,12 +11,12 @@ const LABELS: Record<ApplicationStatus, string> = {
 
 const VARIANTS: Record<
   ApplicationStatus,
-  "secondary" | "info" | "default" | "success" | "destructive"
+  "secondary" | "keyword" | "section" | "score" | "destructive"
 > = {
   draft: "secondary",
-  applied: "info",
-  interview: "default",
-  offer: "success",
+  applied: "keyword",
+  interview: "section",
+  offer: "score",
   rejected: "destructive",
 };
 

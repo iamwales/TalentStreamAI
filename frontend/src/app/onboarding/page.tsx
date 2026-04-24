@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import { UserButton } from "@clerk/nextjs";
+import { UserButton } from "@clerk/react";
 import { ArrowRight, Loader2, Upload } from "lucide-react";
 import Link from "next/link";
 
@@ -13,7 +13,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { getErrorMessage } from "@/lib/error-message";
 import { useUploadBaseResume } from "@/lib/hooks/use-api";
+import { toast } from "sonner";
 
 const ACCEPTED = ".pdf,.doc,.docx,.txt";
 
@@ -27,10 +29,16 @@ export default function OnboardingPage() {
     inputRef.current?.click();
   }
 
-  async function handleContinue() {
+  function handleContinue() {
     if (!file) return;
-    await upload.mutateAsync(file);
-    router.push("/apply");
+    upload.mutate(file, {
+      onSuccess: () => {
+        router.push("/apply");
+      },
+      onError: (error) => {
+        toast.error(getErrorMessage(error));
+      },
+    });
   }
 
   return (

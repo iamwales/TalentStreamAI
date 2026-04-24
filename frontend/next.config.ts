@@ -1,14 +1,51 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import type { NextConfig } from "next";
+
+/** Directory containing this config (the Next.js app root). */
+const appDir = path.dirname(fileURLToPath(import.meta.url));
 
 // Static export is for `next build` / the production Dockerfile only. Keep it off for
 // `next dev` (including Docker Compose) so the dev server behaves normally.
 const useStaticExport = process.env.NEXT_STATIC_EXPORT === "1";
 
+/**
+ * When `NEXT_PUBLIC_API_URL` is empty, the browser calls same-origin `/api/*` and the
+ * dev server rewrites to FastAPI (so CORS is not required for local work).
+ * Set `NEXT_PUBLIC_API_URL` (e.g. in Docker) to call the API host directly instead.
+ */
+const backendOrigin = (process.env.BACKEND_URL || "http://127.0.0.1:8000").replace(
+  /\/$/,
+  "",
+);
+
 const nextConfig: NextConfig = {
+  // Repo root also has a package-lock.json; set tracing root so Next does not
+  // infer the monorepo parent (see "multiple lockfiles" dev warning).
+  outputFileTracingRoot: appDir,
   ...(useStaticExport ? { output: "export" as const } : {}),
   images: {
     unoptimized: true,
   },
+  ...(!useStaticExport
+    ? {
+        async rewrites() {
+          if (process.env.NEXT_PUBLIC_API_URL) {
+            return [];
+          }
+          if (process.env.NEXT_DISABLE_API_REWRITE === "1") {
+            return [];
+          }
+          return [
+            {
+              source: "/api/:path*",
+              destination: `${backendOrigin}/api/:path*`,
+            },
+          ];
+        },
+      }
+    : {}),
 };
 
 export default nextConfig;

@@ -1,9 +1,11 @@
-import ResumeDetailClient from "./resume-detail-client";
+import ResumeDetailPage from "./resume-detail-page";
+
+export const revalidate = 0;
 
 export function generateStaticParams() {
-  return [];
+  return [] as { id: string }[];
 }
 
-export default function ResumeDetailPage() {
-  return <ResumeDetailClient />;
+export default function ResumeByIdPage() {
+  return <ResumeDetailPage />;
 }

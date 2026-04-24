@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import json
-from collections import Counter
+import re
+import time
 from functools import lru_cache
-from typing import Any
+from typing import Any, cast
 
+import structlog
 from langgraph.graph import END, StateGraph
 from typing_extensions import TypedDict
 
 from app.core.config import settings
 from app.services.llm.client import LlmClient, LlmMessage
 from app.services.llm.schemas import GapAnalysis, TextArtifact
+from app.services.resume_weave import top_keywords_from_text, weave_keywords_stub
 
 
 def _sanitize_artifact(text: str) -> str:
@@ -68,6 +71,28 @@ class AgentState(TypedDict, total=False):
     gmail_draft: str
 
 
+def _jd_tokens_not_in_resume(jd_text: str, resume_text: str) -> tuple[list[str], list[str]]:
+    """Return (missing, matched) using JD top keywords vs. whole-word presence in the resume."""
+    res = (resume_text or "").lower()
+    seen_jd: list[str] = []
+    for k in top_keywords_from_text(jd_text, k=50):
+        if k in seen_jd:
+            continue
+        seen_jd.append(k)
+    missing: list[str] = []
+    matched: list[str] = []
+    for k in seen_jd:
+        if len(k) < 2:
+            continue
+        if re.search(rf"(?<!\w){re.escape(k)}(?!\w)", res):
+            if len(matched) < 18:
+                matched.append(k)
+        else:
+            if len(missing) < 22:
+                missing.append(k)
+    return missing[:18], matched[:18]
+
+
 async def _analyze_stub(state: AgentState) -> dict[str, Any]:
     jd_keywords = _keywords(state["job_description_text"])
     return {
@@ -109,10 +134,10 @@ async def _analyze_llm(state: AgentState) -> dict[str, Any]:
 
 async def _draft_resume_stub(state: AgentState) -> dict[str, Any]:
     missing = (state.get("gap_analysis") or {}).get("missing_keywords") or []
-    content = (
-        "TAILORED RESUME (scaffold)\n"
-        f"Keywords to weave in: {', '.join(missing[:12])}\n\n"
-        f"Source resume reference:\n{state['resume_text'][:1000]}"
+    content = weave_keywords_stub(
+        state["resume_text"] or "",
+        missing,
+        state.get("job_description_text") or "",
     )
     return {"tailored_resume": _cap(content)}
 
@@ -132,7 +157,8 @@ async def _draft_resume_llm(state: AgentState) -> dict[str, Any]:
     )
     user = (
         f"JOB_DESCRIPTION:\n{state['job_description_text']}\n\n"
-        f"GAP_ANALYSIS_JSON:\n{json.dumps(state.get('gap_analysis') or {}, ensure_ascii=True)}\n\n"
+        f"GAP_ANALYSIS_JSON (use missing_keywords; weave each into the resume body):\n"
+        f"{json.dumps(state.get('gap_analysis') or {}, ensure_ascii=True)}\n\n"
         f"RESUME:\n{state['resume_text']}\n"
     )
     obj = await client.chat_json(
@@ -146,11 +172,13 @@ async def _draft_resume_llm(state: AgentState) -> dict[str, Any]:
 
 
 async def _draft_cover_letter_stub(state: AgentState) -> dict[str, Any]:
-    missing = (state.get("gap_analysis") or {}).get("missing_keywords") or []
+    kws = (state.get("gap_analysis") or {}).get("missing_keywords") or []
+    klist = ", ".join(str(x) for x in kws[:8]) if kws else "the role’s requirements"
     content = (
-        "COVER LETTER (scaffold)\n"
-        "I am excited to apply. I bring relevant experience aligned with the role.\n\n"
-        f"Role keywords: {', '.join(missing[:10])}"
+        f"Dear Hiring Manager,\n\n"
+        f"I am writing to express my interest in the position. My background aligns with {klist}, and I am eager to contribute in line with the priorities you describe. "
+        f"I would welcome the opportunity to discuss how my experience supports your team.\n\n"
+        f"Sincerely,\n"
     )
     return {"cover_letter": _cap(content)}
 
@@ -187,10 +215,11 @@ async def _draft_cover_letter_llm(state: AgentState) -> dict[str, Any]:
 
 async def _draft_gmail_stub(state: AgentState) -> dict[str, Any]:
     content = (
-        "GMAIL DRAFT (scaffold)\n"
-        "Subject: Application for the role\n\n"
+        "Subject: Application for the open role\n\n"
         "Hi Hiring Team,\n\n"
-        "I just applied and wanted to briefly introduce myself...\n"
+        "I have submitted an application and wanted to share my continued interest. "
+        "I believe my experience aligns well with what you are looking for and I would be glad to discuss further at your convenience.\n\n"
+        "Best regards,\n"
     )
     return {"gmail_draft": _cap(content)}
 
@@ -371,6 +400,34 @@ async def stream_generation_with_missing_skills(
 def _sse(event: str, data: dict) -> str:
     payload = json.dumps(data, ensure_ascii=True)
     return f"event: {event}\ndata: {payload}"
+
+
+_log = structlog.get_logger(__name__)
+
+
+async def run_tailor_pipeline(
+    *, resume_text: str, job_description_text: str
+) -> dict[str, Any]:
+    """
+    Non-streaming end-to-end: gap analysis, tailored resume, cover letter, email draft.
+    Reuses the same graph as :func:`stream_generation` for a single final state.
+    """
+    app = _graph()
+    state: AgentState = {
+        "resume_text": resume_text,
+        "job_description_text": job_description_text,
+    }
+    t0 = time.perf_counter()
+    try:
+        out = await app.ainvoke(state)
+    except Exception:
+        _log.exception("tailor_pipeline_ainvoke_failed")
+        raise
+    _log.info(
+        "tailor_pipeline_complete",
+        duration_ms=round((time.perf_counter() - t0) * 1000, 2),
+    )
+    return cast(dict[str, Any], out)
 
 
 def _cap(text: str) -> str:

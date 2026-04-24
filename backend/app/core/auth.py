@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import structlog
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -24,7 +25,9 @@ def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ) -> AuthenticatedUser:
     if settings.auth_mode == "disabled":
-        return AuthenticatedUser(user_id="anonymous", claims={"auth_mode": "disabled"})
+        u = AuthenticatedUser(user_id="anonymous", claims={"auth_mode": "disabled"})
+        structlog.contextvars.bind_contextvars(user_id=u.user_id)
+        return u
 
     if settings.auth_mode != "clerk_jwks":
         raise HTTPException(status_code=500, detail="Unsupported AUTH_MODE configuration")
@@ -42,4 +45,6 @@ def get_current_user(
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token (missing subject)")
 
-    return AuthenticatedUser(user_id=user_id, claims=claims)
+    u = AuthenticatedUser(user_id=user_id, claims=claims)
+    structlog.contextvars.bind_contextvars(user_id=u.user_id)
+    return u

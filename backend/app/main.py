@@ -1,22 +1,39 @@
 import os
 
+import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.core.config import settings
 from app.core.db import init_db
+from app.core.exception_handlers import global_exception_handler
+from app.core.logging_config import configure_logging
+from app.middleware.request_context import RequestContextMiddleware
 from app.services.llm.client import close_llm_http_clients
+from app.services.observability.langfuse_tracing import ensure_langfuse_ready, flush_langfuse
+
+configure_logging()
+slog = structlog.get_logger(__name__)
 
 app = FastAPI(
     title="TalentStreamAI API",
     version="0.1.0",
-    description="Backend service for the TalentStreamAI capstone (FastAPI + future LangGraph agents).",
+    description="Backend service for the TalentStreamAI (FastAPI, LangGraph, observability).",
 )
+
+app.add_exception_handler(Exception, global_exception_handler)
+
 
 @app.on_event("startup")
 def _startup() -> None:
     init_db()
+    slog.info("service_starting", environment=settings.deployment_environment or "local")
+    if ensure_langfuse_ready():
+        slog.info(
+            "langfuse_tracing_enabled",
+            base_url=settings.langfuse_base_url or "https://cloud.langfuse.com",
+        )
 
     def _running_in_aws() -> bool:
         return bool(
@@ -56,6 +73,7 @@ def _startup() -> None:
 @app.on_event("shutdown")
 async def _shutdown() -> None:
     await close_llm_http_clients()
+    flush_langfuse()
 
 
 app.add_middleware(
@@ -64,7 +82,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=[settings.request_id_header or "X-Request-Id"],
 )
+# Outermost: request id + structlog context (last added in Starlette).
+app.add_middleware(RequestContextMiddleware)
 
 app.include_router(api_router, prefix="/api")
 

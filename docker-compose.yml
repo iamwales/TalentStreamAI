@@ -16,7 +16,6 @@ services:
       CLERK_AUDIENCE: ${CLERK_AUDIENCE:-}
       AGENT_MODE: ${AGENT_MODE:-stub}
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com}
-      LLM_API_KEY: ${LLM_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-gpt-4.1-mini}
@@ -50,6 +49,7 @@ services:
       - "3000:3000"
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
     depends_on:
       backend:
         condition: service_healthy

@@ -6,8 +6,8 @@ type MatchBadgeProps = {
 };
 
 export function MatchBadge({ score, className }: MatchBadgeProps) {
-  const variant: "default" | "warning" | "destructive" =
-    score >= 85 ? "default" : score >= 70 ? "warning" : "destructive";
+  const variant: "score" | "warning" | "destructive" =
+    score >= 85 ? "score" : score >= 70 ? "warning" : "destructive";
 
   return (
     <Badge variant={variant} className={className}>

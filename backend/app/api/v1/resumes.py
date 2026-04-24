@@ -1,93 +1,64 @@
 from __future__ import annotations
 
-import logging
-
+import structlog
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from starlette.concurrency import run_in_threadpool
 
+from app.api.schemas.frontend import ResumeOut, map_resume
 from app.core.auth import AuthenticatedUser, get_current_user
-from app.core.config import settings
-from app.core.db import create_document, get_document
-from app.services.text_guardrails import normalize_user_text
-from app.services.uploads import delete_saved_upload, extract_text, save_upload, validate_upload
+from app.core.db import get_document, get_user_profile, list_documents
+from app.services.ingest_resume import ingest_uploaded_resume
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 
-@router.post("/resumes")
-async def upload_resume(
-    file: UploadFile = File(...),
+@router.get("/resumes", response_model=list[ResumeOut])
+def list_resumes(
     user: AuthenticatedUser = Depends(get_current_user),
-) -> dict[str, str]:
-    try:
-        chunks: list[bytes] = []
-        total = 0
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            total += len(chunk)
-            if total > settings.max_upload_bytes:
-                raise HTTPException(status_code=413, detail="File too large")
-            chunks.append(chunk)
-        raw = b"".join(chunks)
-
-        def _process():
-            detected_type = validate_upload(filename=file.filename or "", content_type=file.content_type, data=raw)
-            extracted = extract_text(detected_type=detected_type, data=raw)
-            extracted = normalize_user_text(extracted)
-            if not extracted:
-                return None, detected_type, ""
-
-            saved = save_upload(
-                detected_type=detected_type,
-                owner_user_id=user.user_id,
-                content_type=file.content_type,
-                data=raw,
-            )
-            return saved, detected_type, extracted
-
-        saved, detected_type, extracted = await run_in_threadpool(_process)
-        if not extracted:
-            raise HTTPException(status_code=400, detail="Could not extract text from resume")
-        try:
-            doc = await run_in_threadpool(
-                create_document,
-                kind="resume",
-                owner_user_id=user.user_id,
-                text=extracted,
-                filename=file.filename,
-                content_type=file.content_type,
-                file_path=saved.path if saved else None,
-                meta={"bytes": len(raw), "detected_type": detected_type},
-            )
-        except Exception:
-            try:
-                await run_in_threadpool(delete_saved_upload, saved.path if saved else None)
-            except Exception:
-                logger.exception("Failed to clean up uploaded resume after DB insert failure")
-            raise
-        return {"resume_id": doc.id}
-    except HTTPException:
-        raise
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+) -> list[ResumeOut]:
+    p = get_user_profile(user_id=user.user_id)
+    base_id = p.base_resume_id if p else None
+    docs = list_documents(owner_user_id=user.user_id, kind="resume")
+    out: list[ResumeOut] = []
+    for d in docs:
+        is_base = base_id is not None and d.id == base_id
+        out.append(map_resume(d, is_base=is_base, application_id=d.meta.get("application_id")))
+    return out
 
 
-@router.get("/resumes/{resume_id}")
+@router.get("/resumes/{resume_id}", response_model=ResumeOut)
 def get_resume(
     resume_id: str,
     user: AuthenticatedUser = Depends(get_current_user),
-) -> dict[str, str | None]:
+) -> ResumeOut:
+    p = get_user_profile(user_id=user.user_id)
+    base_id = p.base_resume_id if p else None
     doc = get_document(doc_id=resume_id, owner_user_id=user.user_id)
     if not doc or doc.kind != "resume":
         raise HTTPException(status_code=404, detail="Resume not found")
-    return {
-        "resume_id": doc.id,
-        "filename": doc.filename,
-        "content_type": doc.content_type,
-        "created_at": doc.created_at,
-    }
+    is_base = base_id is not None and doc.id == base_id
+    return map_resume(
+        doc, is_base=is_base, application_id=doc.meta.get("application_id")
+    )
+
+
+@router.post("/resumes", response_model=ResumeOut)
+async def upload_resume(
+    file: UploadFile = File(...),
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> ResumeOut:
+    try:
+        res = await ingest_uploaded_resume(
+            file=file, user=user, set_as_base=False
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception("resume_upload_failed")
+        raise HTTPException(status_code=500, detail="Failed to store resume") from e
+    p = get_user_profile(user_id=user.user_id)
+    base_id = p.base_resume_id if p else None
+    is_base = base_id is not None and res.document.id == base_id
+    return map_resume(
+        res.document, is_base=is_base, application_id=None
+    )

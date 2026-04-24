@@ -1,40 +1,47 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import { ClerkProvider } from "@clerk/nextjs";
+import { Inter } from "next/font/google";
 
+import { ClerkProviderClient } from "@/components/clerk-provider";
 import { Providers } from "@/components/providers";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+const inter = Inter({
+    subsets: ["latin"],
+    variable: "--font-inter",
+    display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "TalentStreamAI",
-  description:
-    "AI-powered career co-pilot: tailored resumes, cover letters, and match scores in seconds.",
+    title: "TalentStreamAI — Land Interviews, Not Rejections",
+    description:
+        "AI-powered career co-pilot: tailored resumes, cover letters, and match scores in seconds.",
+    keywords: [
+        "CV optimizer",
+        "ATS score",
+        "cover letter",
+        "job application",
+        "interview prep",
+    ],
+    openGraph: {
+        title: "TalentStreamAI — Land Interviews, Not Rejections",
+        description:
+            "AI-powered CV optimization that gets you interviews. Tailored CVs, cover letters, and interview prep in under 60 seconds.",
+        type: "website",
+    },
 };
 
 export default function RootLayout({
-  children,
+    children,
 }: Readonly<{
-  children: React.ReactNode;
+    children: React.ReactNode;
 }>) {
-  return (
-    <ClerkProvider afterSignOutUrl="/">
-      <html lang="en">
-        <body
-          className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-        >
-          <Providers>{children}</Providers>
-        </body>
-      </html>
-    </ClerkProvider>
-  );
+    return (
+        <html lang="en">
+            <body className={`${inter.variable} antialiased`}>
+                <ClerkProviderClient>
+                    <Providers>{children}</Providers>
+                </ClerkProviderClient>
+            </body>
+        </html>
+    );
 }
