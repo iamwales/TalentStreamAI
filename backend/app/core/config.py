@@ -15,9 +15,10 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    api_host: str = "0.0.0.0"
-    api_port: int = 8000
-    cors_origins: str = "http://localhost:3000"
+    # Loaded from API_HOST, API_PORT, CORS_ORIGINS (see repository root .env / .env.example)
+    api_host: str
+    api_port: int
+    cors_origins: str
     deployment_environment: str | None = None
     # Chat completions: OPENROUTER_API_KEY when using OpenRouter; else OPENAI_API_KEY alone.
     openrouter_api_key: str | None = Field(
@@ -65,12 +66,28 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 45.0
     llm_max_tokens: int = 1800
     llm_temperature: float = 0.2
+    # Set false to never send `response_format: json_object` (some OpenRouter models reject it; the client also retries 400s without it).
+    llm_response_json_object: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "LLM_RESPONSE_JSON_OBJECT", "llm_response_json_object"
+        ),
+    )
     openrouter_referer: str | None = None
     openrouter_title: str | None = None
+    # When using api.openai.com, attach string metadata to chat completion requests (OpenAI platform logs).
+    openai_chat_request_metadata: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "OPENAI_CHAT_REQUEST_METADATA", "openai_chat_request_metadata"
+        ),
+    )
 
-    # Product: reported match % for the AI-tailored resume (floor/cap; not a third-party ATS guarantee)
-    min_tailored_match_score: int = 90
-    max_reported_match_score: int = 99
+    # Heuristic match % in API (not a third-party ATS score). `min_` is a floor for the
+    # *reported* tailored score only; default 0 so values vary with keyword analysis.
+    # Set e.g. MIN_TAILORED_MATCH_SCORE=90 in env for a higher marketing floor.
+    min_tailored_match_score: int = Field(default=0, ge=0, le=99)
+    max_reported_match_score: int = Field(default=99, ge=1, le=100)
 
     # --- Observability ---
     log_level: str = "INFO"

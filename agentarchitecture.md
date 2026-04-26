@@ -153,6 +153,8 @@ sequenceDiagram
     F-->>U: UI shows match + documents
 ```
 
+**Image (same flow):** [`agent-node-communication-tailor.png`](./agent-node-communication-tailor.png) in the repository root.
+
 ---
 
 ## Data Flow (Simplified)

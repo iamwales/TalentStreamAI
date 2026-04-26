@@ -37,8 +37,8 @@ def patch_profile(
     if existing is None:
         upsert_user_profile(
             user_id=user.user_id,
-            email=str(claims.get("email") or "unknown@user.local"),
-            full_name=str(claims.get("name") or "User"),
+            email=str(claims.get("email") or ""),
+            full_name=str(claims.get("name") or ""),
             headline=None,
             base_resume_id=body.base_resume_id,
         )

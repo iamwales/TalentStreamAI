@@ -8,6 +8,7 @@ import time
 from typing import Any
 
 import structlog
+from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from app.core import metrics
@@ -23,23 +24,32 @@ from app.core.db import (
 from app.services.draft_email import parse_draft_email
 from app.services.job_text import job_data_to_text
 from app.services.langgraph.streaming_agent import run_tailor_pipeline
+from app.services.llm.client import LlmError
+from app.services.observability.langfuse_tracing import (
+    flush_langfuse,
+    tailor_pipeline_span,
+)
 from app.tools.job_fetcher import fetch_job_description
 
 slog = structlog.get_logger(__name__)
 
 
 def _build_match_analysis(gap: dict[str, Any]) -> dict[str, Any]:
+    """Heuristic pre/post match % from keyword overlap in gap analysis (LLM or stub)."""
     matched = list(gap.get("matched_keywords") or [])
     missing = list(gap.get("missing_keywords") or [])
     n = len(matched) + len(missing)
     if n > 0:
+        # Share of gap keywords already present in the resume (0–100).
         base = int(round(100 * len(matched) / n))
     else:
         base = 60
     original = max(25, min(92, base - 8))
+    # Nudge “after tailoring” above pre-score without claiming a real ATS %.
     raw_tailored = min(99, max(original + 4, min(99, base + 12)))
     lo = settings.min_tailored_match_score
     hi = settings.max_reported_match_score
+    # Env floor (default 0): previously 90, which made almost all runs show 90%–99%.
     tailored = max(lo, min(hi, raw_tailored))
     # Pre-tailored score should stay below the post-AI score so the lift is visible.
     if original >= tailored:
@@ -105,14 +115,35 @@ async def run_tailor_for_user(
 
     t0 = time.perf_counter()
     try:
-        state = await run_tailor_pipeline(
-            resume_text=base.text,
-            job_description_text=jd_text,
+        with tailor_pipeline_span(
+            user_id=user_id, base_resume_id=base_resume_id
+        ):
+            state = await run_tailor_pipeline(
+                resume_text=base.text,
+                job_description_text=jd_text,
+            )
+    except LlmError as e:
+        metrics.tailor_runs.labels("error").inc()
+        slog.error("tailor_pipeline_llm", error=str(e), base_resume_id=base_resume_id)
+        raise ValueError(str(e)) from e
+    except ValidationError as e:
+        metrics.tailor_runs.labels("error").inc()
+        slog.error(
+            "tailor_pipeline_parse",
+            error=str(e),
+            base_resume_id=base_resume_id,
         )
+        raise ValueError(
+            "The model returned a response that did not match the expected format. "
+            "Try again or use a different model (JSON output works best with AGENT_MODE=llm)."
+        ) from e
     except Exception as e:
         metrics.tailor_runs.labels("error").inc()
         slog.exception("tailor_pipeline_failed", base_resume_id=base_resume_id)
         raise ValueError("Tailor pipeline failed; please retry or contact support.") from e
+    finally:
+        # Langfuse batches exports; without flush, traces can sit in memory until process exit.
+        flush_langfuse()
     dur = time.perf_counter() - t0
     slog.info("tailor_duration", seconds=round(dur, 3))
 

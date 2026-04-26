@@ -63,7 +63,7 @@ async def ingest_uploaded_resume(
     if not extracted:
         raise HTTPException(status_code=400, detail="Could not extract text from resume")
 
-    title = (file.filename or "Resume").rsplit("/")[-1][:200]
+    title = (file.filename or "").rsplit("/")[-1][:200]
     meta: dict[str, Any] = {
         "bytes": len(raw),
         "detected_type": detected_type,
@@ -93,7 +93,7 @@ async def ingest_uploaded_resume(
         full_name = str(
             user.claims.get("name")
             or user.claims.get("given_name")
-            or "User"
+            or ""
         )
         await run_in_threadpool(
             upsert_user_profile,

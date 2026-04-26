@@ -126,7 +126,7 @@ def _gap_items(raw: list[Any]) -> list[GapItemOut]:
             out.append(
                 GapItemOut(
                     skill=str(g.get("skill", "")),
-                    severity=str(g.get("severity", "medium")),
+                    severity=str(g.get("severity", "")),
                     note=g.get("note"),
                 )
             )
@@ -134,10 +134,9 @@ def _gap_items(raw: list[Any]) -> list[GapItemOut]:
 
 
 def map_profile(user_id: str, profile: UserProfile | None, claims: dict[str, Any]) -> ProfileOut:
-    email = (profile and profile.email) or str(claims.get("email") or "unknown@user.local")
-    name = (profile and profile.full_name) or str(claims.get("name") or "User")
-    # Stable until a profile row exists (avoids a new createdAt on every request).
-    cr = (profile and profile.created_at) or "2020-01-01T00:00:00+00:00"
+    email = (profile and profile.email) or str(claims.get("email") or "")
+    name = (profile and profile.full_name) or str(claims.get("name") or "")
+    cr = (profile and profile.created_at) or ""
     return ProfileOut(
         id=user_id,
         full_name=name,
@@ -151,7 +150,7 @@ def map_profile(user_id: str, profile: UserProfile | None, claims: dict[str, Any
 def map_resume(
     doc: StoredDocument, *, is_base: bool, application_id: str | None
 ) -> ResumeOut:
-    title = str(doc.meta.get("title") or doc.filename or "Resume")
+    title = str(doc.meta.get("title") or doc.filename or "")
     is_b = bool(doc.meta.get("is_base")) or is_base
     return ResumeOut(
         id=doc.id,
@@ -173,8 +172,8 @@ def map_application(
         jdesc = jdesc[:2000] + "…"
     return ApplicationOut(
         id=a.id,
-        company=str(a.company or "—"),
-        position=str(a.position or "—"),
+        company=str(a.company or ""),
+        position=str(a.position or ""),
         job_url=a.job_url,
         job_description=jdesc,
         match_score=int(round(a.match_score)),
