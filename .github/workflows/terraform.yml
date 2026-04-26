@@ -78,7 +78,8 @@ jobs:
           terraform plan -no-color \
             -var="environment=dev" \
             -var="github_repository=${{ github.repository }}" \
-            -var="enable_github_oidc=false"
+            -var="enable_github_oidc=false" \
+            -var="enable_aurora=false"
 
   apply:
     if: github.event_name != 'pull_request'
