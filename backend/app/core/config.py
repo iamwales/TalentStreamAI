@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -44,6 +44,16 @@ class Settings(BaseSettings):
     sqlite_busy_timeout_ms: int = 5000
     sqlite_enable_wal: bool = True
 
+    # "sqlite" (default) or "postgres" (Aurora / local PostgreSQL; use DATABASE_URL)
+    db_backend: str = Field(
+        default="sqlite",
+        validation_alias=AliasChoices("DB_BACKEND", "db_backend"),
+    )
+    database_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DATABASE_URL", "database_url"),
+    )
+
     upload_storage: str = "none"
     s3_bucket: str | None = None
     s3_prefix: str = "uploads/"
@@ -56,12 +66,28 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 45.0
     llm_max_tokens: int = 1800
     llm_temperature: float = 0.2
+    # Set false to never send `response_format: json_object` (some OpenRouter models reject it; the client also retries 400s without it).
+    llm_response_json_object: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "LLM_RESPONSE_JSON_OBJECT", "llm_response_json_object"
+        ),
+    )
     openrouter_referer: str | None = None
     openrouter_title: str | None = None
+    # When using api.openai.com, attach string metadata to chat completion requests (OpenAI platform logs).
+    openai_chat_request_metadata: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "OPENAI_CHAT_REQUEST_METADATA", "openai_chat_request_metadata"
+        ),
+    )
 
-    # Product: reported match % for the AI-tailored resume (floor/cap; not a third-party ATS guarantee)
-    min_tailored_match_score: int = 90
-    max_reported_match_score: int = 99
+    # Heuristic match % in API (not a third-party ATS score). `min_` is a floor for the
+    # *reported* tailored score only; default 0 so values vary with keyword analysis.
+    # Set e.g. MIN_TAILORED_MATCH_SCORE=90 in env for a higher marketing floor.
+    min_tailored_match_score: int = Field(default=0, ge=0, le=99)
+    max_reported_match_score: int = Field(default=99, ge=1, le=100)
 
     # --- Observability ---
     log_level: str = "INFO"
@@ -130,6 +156,22 @@ class Settings(BaseSettings):
         if normalized.lower() == "aws:kms":
             return "aws:kms"
         return normalized
+
+    @field_validator("db_backend", mode="before")
+    @classmethod
+    def _db_backend_mode(cls, value: object) -> str:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return "sqlite"
+        s = str(value).strip().lower()
+        if s not in ("sqlite", "postgres"):
+            raise ValueError("DB_BACKEND must be 'sqlite' or 'postgres'")
+        return s
+
+    @model_validator(mode="after")
+    def _postgres_needs_url(self) -> "Settings":
+        if self.db_backend == "postgres" and not (self.database_url or "").strip():
+            raise ValueError("DATABASE_URL is required when DB_BACKEND=postgres")
+        return self
 
 
 settings = Settings()

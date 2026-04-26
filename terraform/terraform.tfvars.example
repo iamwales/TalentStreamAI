@@ -1,3 +1,49 @@
 aws_region   = "us-east-1"
 project_name = "talentstreamai"
 environment  = "dev"
+
+# Create S3 + DynamoDB for remote state (see README §1 for first-time init/migrate). Set false to use an existing backend only.
+manage_terraform_state_backend = true
+
+# If the account already has `token.actions.githubusercontent.com` (common), set this false to avoid EntityAlreadyExists.
+# create_github_oidc_provider = false
+
+# --- Aurora (PostgreSQL, Serverless v2) ---
+# Set `false` only to skip database cost in a sandbox (API falls back to SQLite in Lambda, not for production).
+# enable_aurora = true
+# Min/max ACU (cost control; same idea as `terraform/5_database/terraform.tfvars`).
+# aurora_min_capacity = 0.5
+# aurora_max_capacity = 1.0
+
+# --- Auth (Clerk) ---
+# Find these in the Clerk dashboard (JWT template / API settings).
+clerk_jwks_url = "https://<your-clerk-subdomain>.clerk.accounts.dev/.well-known/jwks.json"
+clerk_issuer   = "https://<your-clerk-subdomain>.clerk.accounts.dev"
+# clerk_audience = "optional-audience"
+
+# --- CORS ---
+# The CloudFront domain is always appended automatically in Terraform; use this for extras (local dev, preview domains).
+cors_extra_origins = "http://localhost:3000"
+
+# --- LLM / agents ---
+llm_base_url = "https://openrouter.ai/api/v1"
+llm_model    = "openai/gpt-4.1-mini"
+
+# --- Secrets (stored in AWS Secrets Manager; also ends up in Terraform state) ---
+# At minimum, include the keys you plan to use (OpenRouter vs OpenAI, Langfuse, etc).
+app_secrets_json = <<-JSON
+{
+  "OPENROUTER_API_KEY": "replace-me",
+  "OPENAI_API_KEY": "",
+  "LANGFUSE_PUBLIC_KEY": "",
+  "LANGFUSE_SECRET_KEY": ""
+}
+JSON
+
+# --- Frontend (Next.js static export) ---
+# These are not AWS resources; they document what your CI build should export.
+next_public = {
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = "pk_test_replace_me"
+  # Leave empty to use same-origin `/api/*` behind CloudFront (recommended).
+  NEXT_PUBLIC_API_URL = ""
+}

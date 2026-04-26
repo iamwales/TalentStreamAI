@@ -26,15 +26,19 @@ esac
 cd "$TF_DIR"
 
 if [ -f backend.hcl ]; then
+  if [ ! -f backend_s3.tf ]; then
+    echo "Enabling S3 backend: cp backend_s3.tf.example -> backend_s3.tf"
+    cp backend_s3.tf.example backend_s3.tf
+  fi
   terraform init -input=false -backend-config=backend.hcl
-elif [ "${TALENTSTREAM_USE_LOCAL_TF_STATE:-}" = "1" ]; then
-  echo "Using local Terraform state (TALENTSTREAM_USE_LOCAL_TF_STATE=1)."
-  terraform init -input=false -backend=false
 else
-  echo "Missing $TF_DIR/backend.hcl"
-  echo "Copy backend.hcl.example to backend.hcl and fill in your S3 remote state settings,"
-  echo "or export TALENTSTREAM_USE_LOCAL_TF_STATE=1 for a disposable local state file."
-  exit 1
+  # Default: no backend.hcl → local terraform.tfstate (no backend_s3.tf needed)
+  if [ -f backend_s3.tf ]; then
+    echo "Remove backend_s3.tf if you are not using S3 remote state, or add backend.hcl."
+    exit 1
+  fi
+  echo "No backend.hcl: using local state (default terraform.tfstate in this directory)."
+  terraform init -input=false
 fi
 
 if [ ! -f terraform.tfvars ]; then

@@ -76,10 +76,13 @@ async def _shutdown() -> None:
     flush_langfuse()
 
 
+# Browser clients send `Authorization: Bearer` (Clerk) — not cross-site cookies. Keep
+# `allow_credentials=False` so fetches do not need `credentials: "include"`, which would
+# otherwise fight with `Access-Control-Allow-Credentials: true` on cross-origin API calls.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=[settings.request_id_header or "X-Request-Id"],

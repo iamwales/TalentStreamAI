@@ -1,12 +1,10 @@
-# Scaffold — no AWS calls. Copy patterns from AWS docs when you add OIDC, terraform apply, image push, etc.
-
-name: Deploy (scaffold)
+name: Deploy (manual)
 
 on:
   workflow_dispatch:
     inputs:
       environment:
-        description: Placeholder label for future dev/staging/prod deploys
+        description: Environment to deploy
         type: choice
         options:
           - dev
@@ -16,16 +14,16 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
-  placeholder:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy not wired yet
+      - name: Dispatch note
         run: |
-          echo "TalentStreamAI deploy scaffold: no AWS credentials or Terraform apply in this workflow."
-          echo "When ready: add OIDC (see .github/aws/github-oidc-trust-policy.json.example), repository secrets/vars,"
-          echo "then steps for terraform init/apply, ECR push, S3 sync, CloudFront invalidation, etc."
-          echo "Environment label (for future use): ${{ inputs.environment }}"
+          echo "This workflow is kept for manual deployments."
+          echo "Prefer the unified Terraform pipeline in .github/workflows/terraform.yml."
+          echo "Environment: ${{ inputs.environment }}"

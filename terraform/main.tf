@@ -1,30 +1,560 @@
 terraform {
   required_version = ">= 1.6.0"
 
-  backend "s3" {}
+  # No `backend` block here → default is **local** `terraform.tfstate` in this directory
+  # (so `terraform init` + `terraform apply` work without S3 or `-backend=false`).
+  # For remote state, copy `backend_s3.tf.example` → `backend_s3.tf` (gitignored) and use
+  # `terraform init -backend-config=backend.hcl` (see root README). CI generates `backend_s3.tf`.
 
   required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.75"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.5"
+    }
   }
 }
 
 locals {
   name = "${var.project_name}-${var.environment}"
+  # When `enable_github_oidc`, exactly one of the resource (create) or data (existing) has a single instance.
+  github_oidc_provider_arn = var.enable_github_oidc ? one(concat(
+    aws_iam_openid_connect_provider.github[*].arn,
+    data.aws_iam_openid_connect_provider.github[*].arn
+  )) : null
 }
 
-# ---------------------------------------------------------------------------
-# Scaffold only — no AWS resources are declared here on purpose.
-#
-# Implement the reference architecture in this order (split into modules or
-# keep flat until the shape stabilizes):
-#
-# 1) Networking — VPC, public/private subnets, routing, NAT (or reuse an account landing zone).
-# 2) Data — Aurora Serverless v2, RDS-managed master secret in Secrets Manager, Data API enabled.
-# 3) App secrets — Secrets Manager entries the ECS/Lambda task will read (OpenRouter, etc.).
-# 4) Compute — ECS Fargate (LangGraph + OpenRouter client) or Lambda behind API Gateway; ECR for images.
-# 5) Edge — API Gateway HTTP API (Clerk JWT authorizer on protected routes), CloudFront + S3 for the static Next export.
-# 6) CI/CD — GitHub Actions OIDC role with least privilege for plan/apply and for publishing artifacts.
-# ---------------------------------------------------------------------------
+# Minimal “full stack” (simple, low-cost):
+# - CloudFront + S3 (private bucket via CloudFront Origin Access Identity) for the static Next.js export
+# - API Gateway HTTP API + Lambda proxy for `/api/*`
+# - Optional GitHub Actions OIDC role to run Terraform and publish artifacts
+
+data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
+
+# -----------------------------
+# Frontend (S3 + CloudFront)
+# -----------------------------
+
+resource "aws_s3_bucket" "frontend" {
+  bucket = "${local.name}-frontend-${data.aws_caller_identity.current.account_id}"
+}
+
+resource "aws_s3_bucket_public_access_block" "frontend" {
+  bucket = aws_s3_bucket.frontend.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_ownership_controls" "frontend" {
+  bucket = aws_s3_bucket.frontend.id
+  rule {
+    object_ownership = "BucketOwnerPreferred"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "frontend" {
+  bucket = aws_s3_bucket.frontend.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_cloudfront_origin_access_identity" "frontend" {
+  comment = "OAI for ${local.name} frontend bucket"
+}
+
+resource "aws_s3_bucket" "uploads" {
+  bucket = "${local.name}-uploads-${data.aws_caller_identity.current.account_id}"
+}
+
+resource "aws_s3_bucket_public_access_block" "uploads" {
+  bucket = aws_s3_bucket.uploads.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_ownership_controls" "uploads" {
+  bucket = aws_s3_bucket.uploads.id
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+}
+
+# -----------------------------
+# API (Lambda + HTTP API)
+# -----------------------------
+
+resource "aws_iam_role" "api_lambda_role" {
+  name = "${local.name}-api-lambda-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "api_lambda_basic" {
+  role       = aws_iam_role.api_lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy_attachment" "api_lambda_vpc" {
+  count = var.enable_aurora ? 1 : 0
+
+  role       = aws_iam_role.api_lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+resource "aws_secretsmanager_secret" "app" {
+  name = "${local.name}/app"
+}
+
+resource "aws_secretsmanager_secret_version" "app" {
+  secret_id     = aws_secretsmanager_secret.app.id
+  secret_string = var.app_secrets_json
+}
+
+resource "aws_iam_role_policy" "api_lambda_app" {
+  name = "${local.name}-api-lambda-app"
+  role = aws_iam_role.api_lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+        ]
+        Resource = compact(concat(
+          [aws_secretsmanager_secret.app.arn],
+          var.enable_aurora ? [aws_secretsmanager_secret.aurora[0].arn] : []
+        ))
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:DeleteObject",
+          "s3:ListBucket",
+        ]
+        Resource = [
+          aws_s3_bucket.uploads.arn,
+          "${aws_s3_bucket.uploads.arn}/*",
+        ]
+      },
+    ]
+  })
+}
+
+resource "aws_lambda_function" "api" {
+  function_name = "${local.name}-api"
+  role          = aws_iam_role.api_lambda_role.arn
+  runtime       = "python3.12"
+  handler       = "lambda_handler.handler"
+
+  filename         = "${path.module}/build/api_lambda.zip"
+  source_code_hash = filebase64sha256("${path.module}/build/api_lambda.zip")
+
+  architectures = ["x86_64"]
+  timeout       = var.enable_aurora ? 60 : 30
+  memory_size   = var.enable_aurora ? 1024 : 512
+
+  dynamic "vpc_config" {
+    for_each = var.enable_aurora ? [1] : []
+    content {
+      subnet_ids         = data.aws_subnets.aurora[0].ids
+      security_group_ids = [aws_security_group.api_lambda[0].id]
+    }
+  }
+
+  environment {
+    variables = merge(
+      {
+        DEPLOYMENT_ENVIRONMENT  = var.environment
+        TALENTSTREAM_SECRETS_ID = aws_secretsmanager_secret.app.arn
+        TALENTSTREAM_AWS_LAMBDA = "1"
+
+        CORS_ORIGINS = local.cors_joined
+
+        AUTH_MODE      = "clerk_jwks"
+        CLERK_JWKS_URL = var.clerk_jwks_url
+        CLERK_ISSUER   = var.clerk_issuer
+        CLERK_AUDIENCE = var.clerk_audience == null ? "" : var.clerk_audience
+
+        AGENT_MODE = "llm"
+
+        LLM_BASE_URL        = var.llm_base_url
+        LLM_MODEL           = var.llm_model
+        LLM_TIMEOUT_SECONDS = tostring(var.llm_timeout_seconds)
+        LLM_MAX_TOKENS      = tostring(var.llm_max_tokens)
+        LLM_TEMPERATURE     = tostring(var.llm_temperature)
+        OPENROUTER_REFERER  = var.openrouter_referer == null ? "" : var.openrouter_referer
+        OPENROUTER_TITLE    = var.openrouter_title == null ? "" : var.openrouter_title
+
+        UPLOAD_STORAGE = "s3"
+        S3_BUCKET      = aws_s3_bucket.uploads.id
+        S3_PREFIX      = var.uploads_s3_prefix
+        S3_SSE         = "AES256"
+
+        LOG_LEVEL                   = var.log_level
+        LOG_JSON                    = var.log_json
+        ENABLE_PROMETHEUS           = var.enable_prometheus
+        OTEL_EXPORTER_OTLP_ENDPOINT = var.otel_exporter_otlp_endpoint == null ? "" : var.otel_exporter_otlp_endpoint
+        SERVICE_NAME                = var.service_name
+
+        LANGFUSE_TRACING_ENABLED = tostring(var.langfuse_tracing_enabled)
+        LANGFUSE_BASE_URL        = coalesce(var.langfuse_base_url, "https://cloud.langfuse.com")
+      },
+      var.enable_aurora ? {
+        DB_BACKEND        = "postgres"
+        AURORA_SECRET_ARN = aws_secretsmanager_secret.aurora[0].arn
+        POSTGRES_HOST     = aws_rds_cluster.aurora[0].endpoint
+        POSTGRES_PORT     = "5432"
+        POSTGRES_DB       = var.aurora_database_name
+        POSTGRES_USER     = var.aurora_master_username
+        } : {
+        DB_BACKEND          = "sqlite"
+        TALENTSTREAM_SQLITE = "1"
+        SQLITE_PATH         = "/tmp/talentstreamai.sqlite3"
+      }
+    )
+  }
+
+  # Ensure Aurora is accepting connections and VPC access is ready before the function is updated;
+  # tags create an implicit reference when enable_aurora is true (depends_on must be a static list).
+  tags = merge(
+    {
+      Project     = var.project_name
+      Environment = var.environment
+    },
+    var.enable_aurora ? {
+      "talentstream.io/aurora-ready" = aws_rds_cluster_instance.aurora[0].id
+      "talentstream.io/vpc-access"   = aws_iam_role_policy_attachment.api_lambda_vpc[0].id
+    } : {}
+  )
+
+  depends_on = [aws_iam_role_policy_attachment.api_lambda_basic, aws_iam_role_policy.api_lambda_app]
+}
+
+resource "aws_apigatewayv2_api" "http" {
+  name          = "${local.name}-http-api"
+  protocol_type = "HTTP"
+}
+
+resource "aws_apigatewayv2_stage" "default" {
+  api_id      = aws_apigatewayv2_api.http.id
+  name        = "$default"
+  auto_deploy = true
+}
+
+resource "aws_apigatewayv2_integration" "lambda" {
+  api_id           = aws_apigatewayv2_api.http.id
+  integration_type = "AWS_PROXY"
+  integration_uri  = aws_lambda_function.api.invoke_arn
+}
+
+resource "aws_apigatewayv2_route" "api_any" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "ANY /api/{proxy+}"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "api_root_any" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "ANY /api"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+resource "aws_lambda_permission" "api_gw" {
+  statement_id  = "AllowExecutionFromAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.api.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.http.execution_arn}/*/*"
+}
+
+# -----------------------------
+# CloudFront (S3 default, API on /api/*)
+# -----------------------------
+
+resource "aws_cloudfront_distribution" "cdn" {
+  enabled             = true
+  is_ipv6_enabled     = true
+  default_root_object = "index.html"
+  comment             = "TalentStreamAI static frontend + API"
+
+  origin {
+    domain_name = aws_s3_bucket.frontend.bucket_regional_domain_name
+    origin_id   = "s3-frontend"
+
+    s3_origin_config {
+      origin_access_identity = aws_cloudfront_origin_access_identity.frontend.cloudfront_access_identity_path
+    }
+  }
+
+  origin {
+    domain_name = replace(aws_apigatewayv2_api.http.api_endpoint, "https://", "")
+    origin_id   = "http-api"
+
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "https-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+  }
+
+  default_cache_behavior {
+    target_origin_id       = "s3-frontend"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
+    cached_methods         = ["GET", "HEAD"]
+
+    forwarded_values {
+      query_string = false
+      cookies {
+        forward = "none"
+      }
+    }
+  }
+
+  ordered_cache_behavior {
+    path_pattern           = "/api/*"
+    target_origin_id       = "http-api"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD"]
+
+    # Forward CORS + API headers. Without `Origin` and preflight fields, the origin (API
+    # Gateway/Lambda) may not see the browser's `Origin`, and responses can miss
+    # `Access-Control-Allow-*` — the client reports a "CORS" error.
+    forwarded_values {
+      query_string = true
+      headers = [
+        "Accept",
+        "Access-Control-Request-Headers",
+        "Access-Control-Request-Method",
+        "Authorization",
+        "Content-Type",
+        "Origin",
+        "X-Request-Id",
+      ]
+      cookies {
+        forward = "all"
+      }
+    }
+
+    min_ttl     = 0
+    default_ttl = 0
+    max_ttl     = 0
+  }
+
+  custom_error_response {
+    error_code         = 403
+    response_code      = 200
+    response_page_path = "/index.html"
+  }
+
+  custom_error_response {
+    error_code         = 404
+    response_code      = 200
+    response_page_path = "/index.html"
+  }
+
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
+
+  viewer_certificate {
+    cloudfront_default_certificate = true
+  }
+
+  depends_on = [aws_s3_bucket_public_access_block.frontend]
+}
+
+locals {
+  # NOTE: this must be declared after the distribution exists, because it depends on
+  # `aws_cloudfront_distribution.cdn.domain_name` (used for CORS in the API Lambda).
+  cors_joined = join(
+    ",",
+    compact(concat(
+      [for o in split(",", var.cors_extra_origins) : trimspace(o) if trimspace(o) != ""],
+      ["https://${aws_cloudfront_distribution.cdn.domain_name}"],
+    )),
+  )
+}
+
+resource "aws_s3_bucket_policy" "frontend" {
+  bucket = aws_s3_bucket.frontend.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowCloudFrontOAIRead"
+        Effect = "Allow"
+        Principal = {
+          AWS = aws_cloudfront_origin_access_identity.frontend.iam_arn
+        }
+        Action   = ["s3:GetObject"]
+        Resource = "${aws_s3_bucket.frontend.arn}/*"
+      }
+    ]
+  })
+}
+
+# -----------------------------
+# GitHub Actions OIDC (optional)
+# -----------------------------
+
+resource "aws_iam_openid_connect_provider" "github" {
+  count = var.enable_github_oidc && var.create_github_oidc_provider ? 1 : 0
+
+  url = "https://token.actions.githubusercontent.com"
+
+  client_id_list = [
+    "sts.amazonaws.com",
+  ]
+
+  # GitHub’s Actions OIDC root CA thumbprint.
+  thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
+}
+
+data "aws_iam_openid_connect_provider" "github" {
+  count = var.enable_github_oidc && !var.create_github_oidc_provider ? 1 : 0
+
+  arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/token.actions.githubusercontent.com"
+}
+
+data "aws_iam_policy_document" "github_assume_role" {
+  count = var.enable_github_oidc ? 1 : 0
+
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [local.github_oidc_provider_arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringLike"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = ["repo:${var.github_repository}:*"]
+    }
+  }
+}
+
+resource "aws_iam_role" "github_actions" {
+  count = var.enable_github_oidc ? 1 : 0
+
+  name               = "${local.name}-github-actions"
+  assume_role_policy = data.aws_iam_policy_document.github_assume_role[0].json
+}
+
+resource "aws_iam_role_policy" "github_actions" {
+  count = var.enable_github_oidc ? 1 : 0
+
+  name = "${local.name}-github-actions-policy"
+  role = aws_iam_role.github_actions[0].id
+
+  # Keep this intentionally broad to stay “simple”; tighten once stable.
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = concat(
+      [
+        {
+          Effect = "Allow"
+          Action = ["s3:*"]
+          Resource = concat(
+            [
+              aws_s3_bucket.frontend.arn,
+              "${aws_s3_bucket.frontend.arn}/*",
+              aws_s3_bucket.uploads.arn,
+              "${aws_s3_bucket.uploads.arn}/*",
+            ],
+            var.manage_terraform_state_backend
+            ? [
+              aws_s3_bucket.terraform_state[0].arn,
+              "${aws_s3_bucket.terraform_state[0].arn}/*",
+            ]
+            : [],
+          )
+        },
+        {
+          Effect = "Allow"
+          Action = [
+            "secretsmanager:GetSecretValue",
+            "secretsmanager:PutSecretValue",
+            "secretsmanager:DescribeSecret",
+          ]
+          Resource = [aws_secretsmanager_secret.app.arn]
+        },
+        {
+          Effect   = "Allow"
+          Action   = ["cloudfront:CreateInvalidation", "cloudfront:GetDistribution"]
+          Resource = [aws_cloudfront_distribution.cdn.arn]
+        },
+      ],
+      var.manage_terraform_state_backend
+      ? [
+        {
+          Effect = "Allow"
+          Action = [
+            "dynamodb:GetItem",
+            "dynamodb:PutItem",
+            "dynamodb:DeleteItem",
+            "dynamodb:DescribeTable",
+          ]
+          Resource = [aws_dynamodb_table.terraform_state_lock[0].arn]
+        },
+      ]
+      : [],
+      [
+        {
+          Effect = "Allow"
+          Action = [
+            "apigateway:*",
+            "lambda:*",
+            "iam:*",
+            "logs:*",
+            "ssm:GetParameter",
+            "ssm:GetParameters",
+            "ssm:GetParametersByPath",
+            "sts:GetCallerIdentity",
+          ]
+          Resource = "*"
+        },
+      ],
+    )
+  })
+}

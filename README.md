@@ -153,6 +153,8 @@ TF_ENVIRONMENT=prod ./scripts/deploy-aws.sh
 
 `./scripts/destroy-aws.sh` is a thin wrapper around `terraform destroy` for when resources eventually exist.
 
+**AWS deployment (Terraform, CLI, GitHub Actions)** is documented in the **[root `README.md`](../README.md)** (one level up from this folder).
+
 ## Project structure
 
 Repository root **`TalentStreamAI/`** 
@@ -207,6 +209,8 @@ TalentStreamAI/
 
 For OIDC trust policy shaping, see `.github/aws/github-oidc-trust-policy.json.example` and replace `ACCOUNT_ID`, `GITHUB_ORG`, and `REPO` before attaching it to an IAM role.
 
+**Current deploy automation** (if present in the repo) is described in the **[root deployment guide](../README.md)**.
+
 ## Where feature work should land
 
 - **FastAPI routers**: add packages under `backend/app/api/v1/` (or new version folders) and include them from `backend/app/api/router.py`.
@@ -234,4 +238,4 @@ Add pytest, Ruff, or mypy when the API surface grows; the scaffold stays intenti
 - **Terraform init asks for backend settings.** Create `terraform/backend.hcl` or export `TALENTSTREAM_USE_LOCAL_TF_STATE=1` for disposable local state.
 - **GitHub Actions.** The bundled workflows are placeholders only; there is nothing to “fix” for credentials until you replace them with real jobs.
 
-
+For **deployment steps** (AWS, Terraform, GitHub), see the **[root `README.md`](../README.md)**.

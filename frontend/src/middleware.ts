@@ -1,32 +1,48 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
+import {
+  type NextFetchEvent,
+  type NextRequest,
+  NextResponse,
+} from "next/server";
 
-const isProtectedRoute = createRouteMatcher([
-  "/dashboard(.*)",
-  "/apply(.*)",
-  "/applications(.*)",
-  "/resume(.*)",
-  "/onboarding(.*)",
-]);
+const clerkEnabled =
+  !!process.env.CLERK_SECRET_KEY &&
+  !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
-const isPublicAuthRoute = createRouteMatcher(["/sign-in(.*)", "/sign-up(.*)"]);
+export default async function middleware(
+  req: NextRequest,
+  event: NextFetchEvent,
+) {
+  if (!clerkEnabled) return NextResponse.next();
 
-export default clerkMiddleware(async (auth, req) => {
-  if (isProtectedRoute(req)) {
-    // auth.protect() redirects to sign-in if unauthenticated
-    await auth.protect();
-  }
+  const { clerkMiddleware, createRouteMatcher } = await import(
+    "@clerk/nextjs/server"
+  );
 
-  if (isPublicAuthRoute(req)) {
-    const { userId } = await auth();
-    if (userId) {
-      // Already logged in — send to dashboard
-      return NextResponse.redirect(new URL("/dashboard", req.url));
+  const isProtectedRoute = createRouteMatcher([
+    "/dashboard(.*)",
+    "/apply(.*)",
+    "/applications(.*)",
+    "/resume(.*)",
+    "/onboarding(.*)",
+  ]);
+
+  const isPublicAuthRoute = createRouteMatcher(["/sign-in(.*)", "/sign-up(.*)"]);
+
+  return clerkMiddleware(async (auth, request) => {
+    if (isProtectedRoute(request)) {
+      await auth.protect();
     }
-  }
 
-  return NextResponse.next();
-});
+    if (isPublicAuthRoute(request)) {
+      const { userId } = await auth();
+      if (userId) {
+        return NextResponse.redirect(new URL("/dashboard", request.url));
+      }
+    }
+
+    return NextResponse.next();
+  })(req, event);
+}
 
 export const config = {
   matcher: ["/((?!_next|api|trpc|static|_vercel|.*\\..*).*)"],

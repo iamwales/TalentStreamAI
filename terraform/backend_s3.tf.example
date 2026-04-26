@@ -1,0 +1,9 @@
+# Copy to `backend_s3.tf` (gitignored) when you want S3 remote state.
+# After copying, run:  terraform init -backend-config=backend.hcl
+# (and merge/migrate state if you already have local state).
+#
+# Without this file, the root module uses Terraform’s default **local** backend only.
+
+terraform {
+  backend "s3" {}
+}

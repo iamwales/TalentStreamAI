@@ -35,6 +35,8 @@ yarn-error.log*
 .terraform/
 terraform/terraform.tfvars
 terraform/backend.hcl
+# Opt-in S3 backend (copy from backend_s3.tf.example)
+terraform/backend_s3.tf
 *.tfstate
 *.tfstate.*
 crash.log

@@ -1,8 +1,19 @@
-# Copy to "backend.hcl" (gitignored) for remote Terraform state.
-# GitHub Actions generates this file during deploys.
+# Copy to "backend.hcl" (gitignored) for remote Terraform state after the state bucket exists.
+#
+# The S3 bucket and DynamoDB lock table are created by this same Terraform project
+# (`terraform_state.tf`) when `manage_terraform_state_backend = true`.
+#
+# First run:  terraform init && terraform apply   (default local state; no backend_s3.tf yet)
+# Before S3:  cp backend_s3.tf.example backend_s3.tf
+# Then set bucket + dynamodb_table from outputs:
+#   terraform output -raw terraform_state_bucket_name
+#   terraform output -raw terraform_state_lock_table_name
+# Migrate:     terraform init -migrate-state -backend-config=backend.hcl
+# GitHub Actions: set TF_STATE_* secrets to the same values.
 
-bucket         = "your-terraform-state-bucket"
+bucket         = "REPLACE_AFTER_FIRST_APPLY"
 key            = "talentstreamai/dev/terraform.tfstate"
+# Must match the region where the bucket was created (same as aws_region in terraform.tfvars). Wrong region → S3 301 error on init.
 region         = "us-east-1"
-dynamodb_table = "terraform-locks"
+dynamodb_table = "REPLACE_AFTER_FIRST_APPLY"
 encrypt        = true

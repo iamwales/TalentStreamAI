@@ -252,10 +252,10 @@ async def _draft_gmail_llm(state: AgentState) -> dict[str, Any]:
     return {"gmail_draft": _cap(_sanitize_artifact(artifact.content))}
 
 
-@lru_cache(maxsize=1)
-def _graph():
+@lru_cache(maxsize=2)
+def _compile_tailor_graph(agent_mode: str):
     g = StateGraph(AgentState)
-    if settings.agent_mode == "llm":
+    if agent_mode == "llm":
         g.add_node("analyze", _analyze_llm)
         g.add_node("resume", _draft_resume_llm)
         g.add_node("cover_letter", _draft_cover_letter_llm)
@@ -272,6 +272,10 @@ def _graph():
     g.add_edge("cover_letter", "gmail")
     g.add_edge("gmail", END)
     return g.compile()
+
+
+def _graph():
+    return _compile_tailor_graph(settings.agent_mode)
 
 
 async def stream_generation(*, resume_text: str, job_description_text: str):
@@ -362,10 +366,10 @@ async def _draft_resume_with_missing_skills(
     return {"tailored_resume": _cap(_sanitize_artifact(artifact.content))}
 
 
-@lru_cache(maxsize=1)
-def _graph_with_missing_skills():
+@lru_cache(maxsize=2)
+def _compile_graph_with_missing_skills(agent_mode: str):
     g = StateGraph(AgentStateWithMissingSkills)
-    if settings.agent_mode == "llm":
+    if agent_mode == "llm":
         g.add_node("analyze", _analyze_for_missing)
         g.add_node("resume", _draft_resume_with_missing_skills)
     else:
@@ -376,6 +380,10 @@ def _graph_with_missing_skills():
     g.add_edge("analyze", "resume")
     g.add_edge("resume", END)
     return g.compile()
+
+
+def _graph_with_missing_skills():
+    return _compile_graph_with_missing_skills(settings.agent_mode)
 
 
 async def stream_generation_with_missing_skills(

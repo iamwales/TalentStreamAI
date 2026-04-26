@@ -50,13 +50,32 @@ def ensure_langfuse_ready() -> bool:
 
 
 def flush_langfuse() -> None:
-    """Best-effort flush of queued Langfuse spans (call on process shutdown)."""
+    """Best-effort flush of queued Langfuse spans (call after LLM work and on shutdown)."""
     if _client is None:
         return
     try:
         _client.flush()
     except Exception:
         logger.debug("langfuse flush failed", exc_info=True)
+
+
+@contextmanager
+def tailor_pipeline_span(*, user_id: str, base_resume_id: str) -> Iterator[None]:
+    """Parent span for a full tailor run; nested ``llm.chat_completions`` generations attach under it."""
+    lf = get_tracing_client()
+    if lf is None:
+        yield
+        return
+    try:
+        with lf.start_as_current_observation(
+            as_type="span",
+            name="tailor.run",
+            metadata={"user_id": user_id, "base_resume_id": base_resume_id},
+        ):
+            yield
+    except Exception:
+        logger.debug("langfuse tailor span failed, continuing", exc_info=True)
+        yield
 
 
 @contextmanager

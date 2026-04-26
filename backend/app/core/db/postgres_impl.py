@@ -1,32 +1,38 @@
 from __future__ import annotations
 
+"""
+PostgreSQL storage (Aurora Serverless v2 or any `DATABASE_URL`).
+
+Used in **AWS** when Terraform provisions Aurora and sets `DB_BACKEND=postgres`.
+"""
+
 import json
 import os
-import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Mapping
 from uuid import uuid4
+
+import psycopg
+from psycopg.rows import dict_row
 
 from app.core.config import settings
 
 
-def _ensure_parent_dir(path: str) -> None:
-    parent = os.path.dirname(path)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
+def _connection_url() -> str:
+    base = (settings.database_url or "").strip()
+    if not base:
+        raise RuntimeError("DATABASE_URL is required when DB_BACKEND=postgres")
+    if "sslmode=" in base:
+        return base
+    if os.environ.get("TALENTSTREAM_AWS_LAMBDA") == "1":
+        sep = "&" if "?" in base else "?"
+        return f"{base}{sep}sslmode=require"
+    return base
 
 
-def get_conn() -> sqlite3.Connection:
-    _ensure_parent_dir(settings.sqlite_path)
-    conn = sqlite3.connect(settings.sqlite_path, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute(f"PRAGMA busy_timeout={int(settings.sqlite_busy_timeout_ms)}")
-    conn.execute("PRAGMA foreign_keys=ON")
-    if settings.sqlite_enable_wal:
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-    return conn
+def get_conn() -> psycopg.Connection:
+    return psycopg.connect(_connection_url(), connect_timeout=15, row_factory=dict_row)
 
 
 def init_db() -> None:
@@ -121,7 +127,7 @@ def create_document(
             """
             INSERT INTO documents (
               id, kind, owner_user_id, filename, content_type, file_path, text, created_at, meta_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (doc_id, kind, owner_user_id, filename, content_type, file_path, text, created_at, meta_json),
         )
@@ -146,7 +152,7 @@ def get_document(*, doc_id: str, owner_user_id: str) -> StoredDocument | None:
     conn = get_conn()
     try:
         row = conn.execute(
-            "SELECT * FROM documents WHERE id = ? AND owner_user_id = ? LIMIT 1",
+            "SELECT * FROM documents WHERE id = %s AND owner_user_id = %s LIMIT 1",
             (doc_id, owner_user_id),
         ).fetchone()
     finally:
@@ -172,16 +178,15 @@ def get_document(*, doc_id: str, owner_user_id: str) -> StoredDocument | None:
 def list_documents(
     *, owner_user_id: str, kind: str | None = None, limit: int = 200
 ) -> list[StoredDocument]:
-    """List documents for a user, newest first."""
     conn = get_conn()
     try:
         if kind:
             rows = conn.execute(
                 """
                 SELECT * FROM documents
-                WHERE owner_user_id = ? AND kind = ?
+                WHERE owner_user_id = %s AND kind = %s
                 ORDER BY created_at DESC
-                LIMIT ?
+                LIMIT %s
                 """,
                 (owner_user_id, kind, limit),
             ).fetchall()
@@ -189,9 +194,9 @@ def list_documents(
             rows = conn.execute(
                 """
                 SELECT * FROM documents
-                WHERE owner_user_id = ?
+                WHERE owner_user_id = %s
                 ORDER BY created_at DESC
-                LIMIT ?
+                LIMIT %s
                 """,
                 (owner_user_id, limit),
             ).fetchall()
@@ -232,7 +237,7 @@ def get_user_profile(*, user_id: str) -> UserProfile | None:
     conn = get_conn()
     try:
         row = conn.execute(
-            "SELECT * FROM user_profiles WHERE user_id = ?",
+            "SELECT * FROM user_profiles WHERE user_id = %s",
             (user_id,),
         ).fetchone()
     finally:
@@ -267,7 +272,7 @@ def upsert_user_profile(
                 """
                 INSERT INTO user_profiles
                   (user_id, email, full_name, headline, base_resume_id, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
                 (user_id, email, full_name, headline, base_resume_id, now, now),
             )
@@ -275,12 +280,12 @@ def upsert_user_profile(
             conn.execute(
                 """
                 UPDATE user_profiles
-                SET email = COALESCE(?, email),
-                    full_name = COALESCE(?, full_name),
-                    headline = COALESCE(?, headline),
-                    base_resume_id = COALESCE(?, base_resume_id),
-                    updated_at = ?
-                WHERE user_id = ?
+                SET email = COALESCE(%s, email),
+                    full_name = COALESCE(%s, full_name),
+                    headline = COALESCE(%s, headline),
+                    base_resume_id = COALESCE(%s, base_resume_id),
+                    updated_at = %s
+                WHERE user_id = %s
                 """,
                 (email, full_name, headline, base_resume_id, now, user_id),
             )
@@ -333,7 +338,7 @@ def create_application(
             INSERT INTO application_records (
                 id, user_id, company, position, job_url, job_description,
                 match_score, status, base_resume_id, resume_id, cover_letter, meta_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 app_id,
@@ -365,7 +370,7 @@ def get_application(*, app_id: str, user_id: str) -> ApplicationRecord | None:
         row = conn.execute(
             """
             SELECT * FROM application_records
-            WHERE id = ? AND user_id = ? LIMIT 1
+            WHERE id = %s AND user_id = %s LIMIT 1
             """,
             (app_id, user_id),
         ).fetchone()
@@ -384,9 +389,9 @@ def list_applications(
         rows = conn.execute(
             """
             SELECT * FROM application_records
-            WHERE user_id = ?
+            WHERE user_id = %s
             ORDER BY created_at DESC
-            LIMIT ?
+            LIMIT %s
             """,
             (user_id, limit),
         ).fetchall()
@@ -395,7 +400,7 @@ def list_applications(
     return [_row_to_application(r) for r in rows]
 
 
-def _row_to_application(row: sqlite3.Row) -> ApplicationRecord:
+def _row_to_application(row: Mapping[str, Any]) -> ApplicationRecord:
     raw = row["meta_json"] or "{}"
     meta: dict[str, Any] = json.loads(raw) if raw else {}
     return ApplicationRecord(
@@ -418,7 +423,6 @@ def _row_to_application(row: sqlite3.Row) -> ApplicationRecord:
 def update_document_meta(
     *, doc_id: str, owner_user_id: str, meta_patch: dict[str, Any]
 ) -> StoredDocument | None:
-    """Merge meta_patch into the document's meta JSON."""
     doc = get_document(doc_id=doc_id, owner_user_id=owner_user_id)
     if not doc:
         return None
@@ -427,7 +431,7 @@ def update_document_meta(
     conn = get_conn()
     try:
         conn.execute(
-            "UPDATE documents SET meta_json = ? WHERE id = ? AND owner_user_id = ?",
+            "UPDATE documents SET meta_json = %s WHERE id = %s AND owner_user_id = %s",
             (meta_json, doc_id, owner_user_id),
         )
         conn.commit()
@@ -437,27 +441,27 @@ def update_document_meta(
 
 
 def dashboard_aggregates(*, user_id: str) -> dict[str, int | float]:
-    """Pre-computed dashboard numbers for a user (SQLite; swap for warehouse in prod)."""
     conn = get_conn()
     try:
         n_apps = conn.execute(
-            "SELECT COUNT(*) AS c FROM application_records WHERE user_id = ?",
+            "SELECT COUNT(*) AS c FROM application_records WHERE user_id = %s",
             (user_id,),
         ).fetchone()["c"]
         n_interview = conn.execute(
-            "SELECT COUNT(*) AS c FROM application_records WHERE user_id = ? AND status = 'interview'",
+            "SELECT COUNT(*) AS c FROM application_records WHERE user_id = %s AND status = 'interview'",
             (user_id,),
         ).fetchone()["c"]
         score_row = conn.execute(
             """
             SELECT AVG(match_score) AS a FROM application_records
-            WHERE user_id = ? AND match_score > 0
+            WHERE user_id = %s AND match_score > 0
             """,
             (user_id,),
         ).fetchone()
-        avg = score_row["a"] if score_row and score_row["a"] is not None else 0.0
+        a = score_row["a"] if score_row else None
+        avg = a if a is not None else 0.0
         n_tailored = conn.execute(
-            "SELECT COUNT(*) AS c FROM documents WHERE owner_user_id = ? AND kind = 'resume'",
+            "SELECT COUNT(*) AS c FROM documents WHERE owner_user_id = %s AND kind = 'resume'",
             (user_id,),
         ).fetchone()["c"]
     finally:

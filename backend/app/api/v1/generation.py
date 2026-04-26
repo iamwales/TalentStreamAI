@@ -14,6 +14,7 @@ from app.services.langgraph.streaming_agent import (
     stream_generation,
     stream_generation_with_missing_skills,
 )
+from app.services.observability.langfuse_tracing import flush_langfuse
 from app.services.text_guardrails import normalize_user_text
 
 router = APIRouter()
@@ -70,6 +71,8 @@ async def generate_stream(
         except Exception:
             logger.exception("Generation stream failed")
             yield 'event: error\ndata: {"message":"generation_failed"}\n\n'
+        finally:
+            flush_langfuse()
 
     return StreamingResponse(
         event_stream(),
@@ -125,20 +128,23 @@ async def generate_with_missing_skills(
 
     # Collect results from the streaming generator
     result = {"gap_analysis": None, "tailored_resume": None}
-    async for line in stream_generation_with_missing_skills(
-        resume_text=resume_text, job_description_text=jd_text
-    ):
-        parts = line.strip().split("\n")
-        if len(parts) >= 2:
-            event_type = parts[0].replace("event: ", "")
-            try:
-                data = json.loads(parts[1].replace("data: ", ""))
-                if event_type == "gap_analysis":
-                    result["gap_analysis"] = data
-                elif event_type == "resume":
-                    result["tailored_resume"] = data.get("content")
-            except json.JSONDecodeError:
-                continue
+    try:
+        async for line in stream_generation_with_missing_skills(
+            resume_text=resume_text, job_description_text=jd_text
+        ):
+            parts = line.strip().split("\n")
+            if len(parts) >= 2:
+                event_type = parts[0].replace("event: ", "")
+                try:
+                    data = json.loads(parts[1].replace("data: ", ""))
+                    if event_type == "gap_analysis":
+                        result["gap_analysis"] = data
+                    elif event_type == "resume":
+                        result["tailored_resume"] = data.get("content")
+                except json.JSONDecodeError:
+                    continue
+    finally:
+        flush_langfuse()
 
     if not result["tailored_resume"]:
         raise HTTPException(status_code=500, detail="Failed to generate resume")

@@ -5,10 +5,12 @@ description = "TalentStreamAI FastAPI service"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi==0.115.12",
+  "mangum==0.19.0",
   "uvicorn[standard]==0.34.0",
   "pydantic-settings==2.8.1",
   "python-multipart==0.0.20",
   "httpx==0.28.1",
+  "openai>=1.59.0",
   "tenacity==9.1.4",
   "PyJWT[crypto]==2.10.1",
   "pypdf==5.4.0",
@@ -20,6 +22,7 @@ dependencies = [
   "prometheus-client==0.21.1",
   "beautifulsoup4==4.12.3",
   "langfuse>=4.5.0",
+  "psycopg[binary]>=3.2.0",
 ]
 
 [tool.uv]
