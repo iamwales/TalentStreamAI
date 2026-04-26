@@ -30,9 +30,9 @@ env:
 
 jobs:
   deploy:
-    name: Deploy to ${{ env.DEPLOY_ENV }}
+    name: Deploy to ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'dev' }}
     runs-on: ubuntu-latest
-    environment: ${{ env.DEPLOY_ENV }}
+    environment: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'dev' }}
 
     steps:
       - name: Checkout
