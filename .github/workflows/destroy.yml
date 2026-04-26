@@ -1,0 +1,62 @@
+name: Destroy TalentStreamAI
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to destroy"
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      confirm:
+        description: "Type the environment name to confirm"
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  destroy:
+    name: Destroy ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Verify confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "${{ github.event.inputs.environment }}" ]; then
+            echo "Confirmation does not match environment."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: github-actions-destroy
+          aws-region: ${{ secrets.DEFAULT_AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Run destroy script
+        run: |
+          export DEFAULT_AWS_REGION=${{ secrets.DEFAULT_AWS_REGION }}
+          chmod +x scripts/destroy.sh
+          ./scripts/destroy.sh ${{ github.event.inputs.environment }}
+        env:
+          TF_VAR_clerk_jwks_url: ${{ secrets.CLERK_JWKS_URL }}
+          TF_VAR_clerk_issuer: ${{ secrets.CLERK_ISSUER }}
+          TF_VAR_app_secrets_json: ${{ secrets.APP_SECRETS_JSON }}
+
+      - name: Complete
+        run: echo "Destroyed ${{ github.event.inputs.environment }}." >> $GITHUB_STEP_SUMMARY

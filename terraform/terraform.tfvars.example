@@ -2,20 +2,12 @@ aws_region   = "us-east-1"
 project_name = "talentstreamai"
 environment  = "dev"
 
-# Required for GitHub Actions AWS OIDC: must match the repo that runs the workflow (OWNER/REPO from the URL).
-# If wrong, CI fails: Not authorized to perform sts:AssumeRoleWithWebIdentity
-# github_repository = "iamwales/TalentStreamAI"
-
-# Create S3 + DynamoDB for remote state (see README §1 for first-time init/migrate). Set false to use an existing backend only.
+# Create S3 + DynamoDB for remote state (see root README). Set false to use an existing backend only.
 manage_terraform_state_backend = true
+# GitHub OIDC is not managed in Terraform: create the IAM role in AWS and set AWS_ROLE_ARN in the repo.
 
-# If the account already has `token.actions.githubusercontent.com` (common), set this false to avoid EntityAlreadyExists.
-# create_github_oidc_provider = false
-
-# --- Aurora (PostgreSQL, Serverless v2) ---
-# Set `false` only to skip database cost in a sandbox (API falls back to SQLite in Lambda, not for production).
-# enable_aurora = true
-# Min/max ACU (cost control; same idea as `terraform/5_database/terraform.tfvars`).
+# --- Aurora (PostgreSQL, Serverless v2) — always created for this stack ---
+# Min/max ACU (cost control).
 # aurora_min_capacity = 0.5
 # aurora_max_capacity = 1.0
 

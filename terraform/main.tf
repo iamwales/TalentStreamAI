@@ -1,10 +1,10 @@
 terraform {
   required_version = ">= 1.6.0"
 
-  # No `backend` block here → default is **local** `terraform.tfstate` in this directory
-  # (so `terraform init` + `terraform apply` work without S3 or `-backend=false`).
-  # For remote state, copy `backend_s3.tf.example` → `backend_s3.tf` (gitignored) and use
-  # `terraform init -backend-config=backend.hcl` (see root README). CI generates `backend_s3.tf`.
+  # Remote state: `scripts/deploy.sh` passes -backend-config (S3 + DynamoDB lock). Local dev can use
+  # `terraform init` without -backend for a local `terraform.tfstate` file.
+  backend "s3" {
+  }
 
   required_providers {
     aws = {
@@ -20,17 +20,11 @@ terraform {
 
 locals {
   name = "${var.project_name}-${var.environment}"
-  # When `enable_github_oidc`, exactly one of the resource (create) or data (existing) has a single instance.
-  github_oidc_provider_arn = var.enable_github_oidc ? one(concat(
-    aws_iam_openid_connect_provider.github[*].arn,
-    data.aws_iam_openid_connect_provider.github[*].arn
-  )) : null
 }
 
-# Minimal “full stack” (simple, low-cost):
-# - CloudFront + S3 (private bucket via CloudFront Origin Access Identity) for the static Next.js export
-# - API Gateway HTTP API + Lambda proxy for `/api/*`
-# - Optional GitHub Actions OIDC role to run Terraform and publish artifacts
+# - CloudFront + S3 (OAI) for the static Next.js export
+# - API Gateway v2 + Lambda for `/api/*`
+# - GitHub Actions: assume a role you create manually (OIDC) or use long-lived keys for bootstrap only; see README
 
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
@@ -117,7 +111,7 @@ resource "aws_iam_role_policy_attachment" "api_lambda_basic" {
 }
 
 resource "aws_iam_role_policy_attachment" "api_lambda_vpc" {
-  count = var.enable_aurora ? 1 : 0
+  count = 1
 
   role       = aws_iam_role.api_lambda_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
@@ -144,10 +138,10 @@ resource "aws_iam_role_policy" "api_lambda_app" {
         Action = [
           "secretsmanager:GetSecretValue",
         ]
-        Resource = compact(concat(
-          [aws_secretsmanager_secret.app.arn],
-          var.enable_aurora ? [aws_secretsmanager_secret.aurora[0].arn] : []
-        ))
+        Resource = [
+          aws_secretsmanager_secret.app.arn,
+          aws_secretsmanager_secret.aurora[0].arn,
+        ]
       },
       {
         Effect = "Allow"
@@ -176,82 +170,66 @@ resource "aws_lambda_function" "api" {
   source_code_hash = filebase64sha256("${path.module}/build/api_lambda.zip")
 
   architectures = ["x86_64"]
-  timeout       = var.enable_aurora ? 60 : 30
-  memory_size   = var.enable_aurora ? 1024 : 512
+  timeout       = 60
+  memory_size   = 1024
 
-  dynamic "vpc_config" {
-    for_each = var.enable_aurora ? [1] : []
-    content {
-      subnet_ids         = data.aws_subnets.aurora[0].ids
-      security_group_ids = [aws_security_group.api_lambda[0].id]
-    }
+  vpc_config {
+    subnet_ids         = data.aws_subnets.aurora[0].ids
+    security_group_ids = [aws_security_group.api_lambda[0].id]
   }
 
   environment {
-    variables = merge(
-      {
-        DEPLOYMENT_ENVIRONMENT  = var.environment
-        TALENTSTREAM_SECRETS_ID = aws_secretsmanager_secret.app.arn
-        TALENTSTREAM_AWS_LAMBDA = "1"
+    variables = {
+      DEPLOYMENT_ENVIRONMENT  = var.environment
+      TALENTSTREAM_SECRETS_ID = aws_secretsmanager_secret.app.arn
+      TALENTSTREAM_AWS_LAMBDA = "1"
 
-        CORS_ORIGINS = local.cors_joined
+      CORS_ORIGINS = local.cors_joined
 
-        AUTH_MODE      = "clerk_jwks"
-        CLERK_JWKS_URL = var.clerk_jwks_url
-        CLERK_ISSUER   = var.clerk_issuer
-        CLERK_AUDIENCE = var.clerk_audience == null ? "" : var.clerk_audience
+      AUTH_MODE      = "clerk_jwks"
+      CLERK_JWKS_URL = var.clerk_jwks_url
+      CLERK_ISSUER   = var.clerk_issuer
+      CLERK_AUDIENCE = var.clerk_audience == null ? "" : var.clerk_audience
 
-        AGENT_MODE = "llm"
+      AGENT_MODE = "llm"
 
-        LLM_BASE_URL        = var.llm_base_url
-        LLM_MODEL           = var.llm_model
-        LLM_TIMEOUT_SECONDS = tostring(var.llm_timeout_seconds)
-        LLM_MAX_TOKENS      = tostring(var.llm_max_tokens)
-        LLM_TEMPERATURE     = tostring(var.llm_temperature)
-        OPENROUTER_REFERER  = var.openrouter_referer == null ? "" : var.openrouter_referer
-        OPENROUTER_TITLE    = var.openrouter_title == null ? "" : var.openrouter_title
+      LLM_BASE_URL        = var.llm_base_url
+      LLM_MODEL           = var.llm_model
+      LLM_TIMEOUT_SECONDS = tostring(var.llm_timeout_seconds)
+      LLM_MAX_TOKENS      = tostring(var.llm_max_tokens)
+      LLM_TEMPERATURE     = tostring(var.llm_temperature)
+      OPENROUTER_REFERER  = var.openrouter_referer == null ? "" : var.openrouter_referer
+      OPENROUTER_TITLE    = var.openrouter_title == null ? "" : var.openrouter_title
 
-        UPLOAD_STORAGE = "s3"
-        S3_BUCKET      = aws_s3_bucket.uploads.id
-        S3_PREFIX      = var.uploads_s3_prefix
-        S3_SSE         = "AES256"
+      UPLOAD_STORAGE = "s3"
+      S3_BUCKET      = aws_s3_bucket.uploads.id
+      S3_PREFIX      = var.uploads_s3_prefix
+      S3_SSE         = "AES256"
 
-        LOG_LEVEL                   = var.log_level
-        LOG_JSON                    = var.log_json
-        ENABLE_PROMETHEUS           = var.enable_prometheus
-        OTEL_EXPORTER_OTLP_ENDPOINT = var.otel_exporter_otlp_endpoint == null ? "" : var.otel_exporter_otlp_endpoint
-        SERVICE_NAME                = var.service_name
+      LOG_LEVEL                   = var.log_level
+      LOG_JSON                    = var.log_json
+      ENABLE_PROMETHEUS           = var.enable_prometheus
+      OTEL_EXPORTER_OTLP_ENDPOINT = var.otel_exporter_otlp_endpoint == null ? "" : var.otel_exporter_otlp_endpoint
+      SERVICE_NAME                = var.service_name
 
-        LANGFUSE_TRACING_ENABLED = tostring(var.langfuse_tracing_enabled)
-        LANGFUSE_BASE_URL        = coalesce(var.langfuse_base_url, "https://cloud.langfuse.com")
-      },
-      var.enable_aurora ? {
-        DB_BACKEND        = "postgres"
-        AURORA_SECRET_ARN = aws_secretsmanager_secret.aurora[0].arn
-        POSTGRES_HOST     = aws_rds_cluster.aurora[0].endpoint
-        POSTGRES_PORT     = "5432"
-        POSTGRES_DB       = var.aurora_database_name
-        POSTGRES_USER     = var.aurora_master_username
-        } : {
-        DB_BACKEND          = "sqlite"
-        TALENTSTREAM_SQLITE = "1"
-        SQLITE_PATH         = "/tmp/talentstreamai.sqlite3"
-      }
-    )
+      LANGFUSE_TRACING_ENABLED = tostring(var.langfuse_tracing_enabled)
+      LANGFUSE_BASE_URL        = coalesce(var.langfuse_base_url, "https://cloud.langfuse.com")
+
+      AURORA_SECRET_ARN = aws_secretsmanager_secret.aurora[0].arn
+      POSTGRES_HOST     = aws_rds_cluster.aurora[0].endpoint
+      POSTGRES_PORT     = "5432"
+      POSTGRES_DB       = var.aurora_database_name
+      POSTGRES_USER     = var.aurora_master_username
+    }
   }
 
-  # Ensure Aurora is accepting connections and VPC access is ready before the function is updated;
-  # tags create an implicit reference when enable_aurora is true (depends_on must be a static list).
-  tags = merge(
-    {
-      Project     = var.project_name
-      Environment = var.environment
-    },
-    var.enable_aurora ? {
-      "talentstream.io/aurora-ready" = aws_rds_cluster_instance.aurora[0].id
-      "talentstream.io/vpc-access"   = aws_iam_role_policy_attachment.api_lambda_vpc[0].id
-    } : {}
-  )
+  # Ensure Aurora is up and Lambda VPC + IAM are ready before function update.
+  tags = {
+    Project                        = var.project_name
+    Environment                    = var.environment
+    "talentstream.io/aurora-ready" = aws_rds_cluster_instance.aurora[0].id
+    "talentstream.io/vpc-access"   = aws_iam_role_policy_attachment.api_lambda_vpc[0].id
+  }
 
   depends_on = [aws_iam_role_policy_attachment.api_lambda_basic, aws_iam_role_policy.api_lambda_app]
 }
@@ -422,139 +400,5 @@ resource "aws_s3_bucket_policy" "frontend" {
         Resource = "${aws_s3_bucket.frontend.arn}/*"
       }
     ]
-  })
-}
-
-# -----------------------------
-# GitHub Actions OIDC (optional)
-# -----------------------------
-
-resource "aws_iam_openid_connect_provider" "github" {
-  count = var.enable_github_oidc && var.create_github_oidc_provider ? 1 : 0
-
-  url = "https://token.actions.githubusercontent.com"
-
-  client_id_list = [
-    "sts.amazonaws.com",
-  ]
-
-  # GitHub’s Actions OIDC root CA thumbprint.
-  thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
-}
-
-data "aws_iam_openid_connect_provider" "github" {
-  count = var.enable_github_oidc && !var.create_github_oidc_provider ? 1 : 0
-
-  arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/token.actions.githubusercontent.com"
-}
-
-data "aws_iam_policy_document" "github_assume_role" {
-  count = var.enable_github_oidc ? 1 : 0
-
-  statement {
-    effect  = "Allow"
-    actions = ["sts:AssumeRoleWithWebIdentity"]
-
-    principals {
-      type        = "Federated"
-      identifiers = [local.github_oidc_provider_arn]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "token.actions.githubusercontent.com:aud"
-      values   = ["sts.amazonaws.com"]
-    }
-
-    condition {
-      test     = "StringLike"
-      variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:*"]
-    }
-  }
-}
-
-resource "aws_iam_role" "github_actions" {
-  count = var.enable_github_oidc ? 1 : 0
-
-  name               = "${local.name}-github-actions"
-  assume_role_policy = data.aws_iam_policy_document.github_assume_role[0].json
-}
-
-resource "aws_iam_role_policy" "github_actions" {
-  count = var.enable_github_oidc ? 1 : 0
-
-  name = "${local.name}-github-actions-policy"
-  role = aws_iam_role.github_actions[0].id
-
-  # Keep this intentionally broad to stay “simple”; tighten once stable.
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = concat(
-      [
-        {
-          Effect = "Allow"
-          Action = ["s3:*"]
-          Resource = concat(
-            [
-              aws_s3_bucket.frontend.arn,
-              "${aws_s3_bucket.frontend.arn}/*",
-              aws_s3_bucket.uploads.arn,
-              "${aws_s3_bucket.uploads.arn}/*",
-            ],
-            var.manage_terraform_state_backend
-            ? [
-              aws_s3_bucket.terraform_state[0].arn,
-              "${aws_s3_bucket.terraform_state[0].arn}/*",
-            ]
-            : [],
-          )
-        },
-        {
-          Effect = "Allow"
-          Action = [
-            "secretsmanager:GetSecretValue",
-            "secretsmanager:PutSecretValue",
-            "secretsmanager:DescribeSecret",
-          ]
-          Resource = [aws_secretsmanager_secret.app.arn]
-        },
-        {
-          Effect   = "Allow"
-          Action   = ["cloudfront:CreateInvalidation", "cloudfront:GetDistribution"]
-          Resource = [aws_cloudfront_distribution.cdn.arn]
-        },
-      ],
-      var.manage_terraform_state_backend
-      ? [
-        {
-          Effect = "Allow"
-          Action = [
-            "dynamodb:GetItem",
-            "dynamodb:PutItem",
-            "dynamodb:DeleteItem",
-            "dynamodb:DescribeTable",
-          ]
-          Resource = [aws_dynamodb_table.terraform_state_lock[0].arn]
-        },
-      ]
-      : [],
-      [
-        {
-          Effect = "Allow"
-          Action = [
-            "apigateway:*",
-            "lambda:*",
-            "iam:*",
-            "logs:*",
-            "ssm:GetParameter",
-            "ssm:GetParameters",
-            "ssm:GetParametersByPath",
-            "sts:GetCallerIdentity",
-          ]
-          Resource = "*"
-        },
-      ],
-    )
   })
 }

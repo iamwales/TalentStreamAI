@@ -1,13 +1,11 @@
-# Remote state infrastructure (S3 + DynamoDB).
-#
-# First apply: default local state — `terraform init` then `terraform apply` (no S3 in repo until you add backend_s3.tf).
-# Then migrate: point backend.hcl at the outputs below and `terraform init -migrate-state`.
-#
-# Set `manage_terraform_state_backend = false` only if you use a pre-existing backend (advanced).
+# Remote state (S3 + DynamoDB) — created in the same root module when `manage_terraform_state_backend` is true.
+# CI and `scripts/deploy.sh` use that bucket; first-time workflow: use `terraform init -reconfigure -backend=false`, apply, then migrate state (see root README).
+# Set `manage_terraform_state_backend = false` only if you supply an existing backend.
 
 resource "aws_s3_bucket" "terraform_state" {
-  count  = var.manage_terraform_state_backend ? 1 : 0
-  bucket = "${local.name}-tfstate-${data.aws_caller_identity.current.account_id}"
+  count = var.manage_terraform_state_backend ? 1 : 0
+  # One shared bucket per account; state file keys / workspaces carry the environment.
+  bucket = "${var.project_name}-tfstate-${data.aws_caller_identity.current.account_id}"
 
   tags = {
     Purpose = "terraform-remote-state"
@@ -47,7 +45,7 @@ resource "aws_s3_bucket_public_access_block" "terraform_state" {
 resource "aws_dynamodb_table" "terraform_state_lock" {
   count = var.manage_terraform_state_backend ? 1 : 0
 
-  name         = replace("${local.name}-tf-locks", "_", "-")
+  name         = replace("${var.project_name}-tf-locks", "_", "-")
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "LockID"
 

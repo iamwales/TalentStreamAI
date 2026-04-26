@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -39,18 +39,12 @@ class Settings(BaseSettings):
     max_text_chars: int = 80_000
     max_output_chars: int = 120_000
 
-    sqlite_path: str = ".data/talentstreamai.sqlite3"
     upload_dir: str = ".data/uploads"
-    sqlite_busy_timeout_ms: int = 5000
-    sqlite_enable_wal: bool = True
 
-    # "sqlite" (default) or "postgres" (Aurora / local PostgreSQL; use DATABASE_URL)
-    db_backend: str = Field(
-        default="sqlite",
-        validation_alias=AliasChoices("DB_BACKEND", "db_backend"),
-    )
-    database_url: str | None = Field(
-        default=None,
+    # PostgreSQL (local Docker, Aurora in AWS — see lambda_handler for URL construction in Lambda)
+    database_url: str = Field(
+        ...,
+        min_length=1,
         validation_alias=AliasChoices("DATABASE_URL", "database_url"),
     )
 
@@ -157,21 +151,12 @@ class Settings(BaseSettings):
             return "aws:kms"
         return normalized
 
-    @field_validator("db_backend", mode="before")
+    @field_validator("database_url", mode="before")
     @classmethod
-    def _db_backend_mode(cls, value: object) -> str:
-        if value is None or (isinstance(value, str) and not value.strip()):
-            return "sqlite"
-        s = str(value).strip().lower()
-        if s not in ("sqlite", "postgres"):
-            raise ValueError("DB_BACKEND must be 'sqlite' or 'postgres'")
-        return s
-
-    @model_validator(mode="after")
-    def _postgres_needs_url(self) -> "Settings":
-        if self.db_backend == "postgres" and not (self.database_url or "").strip():
-            raise ValueError("DATABASE_URL is required when DB_BACKEND=postgres")
-        return self
+    def _require_database_url(cls, value: object) -> str:
+        if value is None or (isinstance(value, str) and not str(value).strip()):
+            raise ValueError("DATABASE_URL is required (PostgreSQL).")
+        return str(value).strip()
 
 
 settings = Settings()

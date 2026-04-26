@@ -1,21 +1,21 @@
-# Aurora Serverless v2 (PostgreSQL) for the API when var.enable_aurora is true.
-# Cost controls: use min_capacity / max_capacity (e.g. 0.5–1.0 ACU) per environment.
+# Aurora Serverless v2 (PostgreSQL) — always provisioned (this stack is production-only).
+# `count = 1` keeps state addresses as `name[0]` to match prior `enable_aurora = true` stacks.
+# Cost: min_capacity / max_capacity in terraform.tfvars
 
 resource "random_id" "aurora_secret" {
-  count       = var.enable_aurora ? 1 : 0
+  count       = 1
   byte_length = 4
 }
 
 resource "random_password" "aurora" {
-  count   = var.enable_aurora ? 1 : 0
-  length  = 32
-  special = true
-  # AWS RDS allows most printable ASCII; keep to a safe set
+  count            = 1
+  length           = 32
+  special          = true
   override_special = "!#$%&*()-_=+[]{}<>:?"
 }
 
 resource "aws_secretsmanager_secret" "aurora" {
-  count = var.enable_aurora ? 1 : 0
+  count = 1
 
   name                    = "${local.name}-aurora-${random_id.aurora_secret[0].hex}"
   recovery_window_in_days = var.aurora_secret_recovery_window_days
@@ -27,7 +27,7 @@ resource "aws_secretsmanager_secret" "aurora" {
 }
 
 resource "aws_secretsmanager_secret_version" "aurora" {
-  count = var.enable_aurora ? 1 : 0
+  count = 1
 
   secret_id = aws_secretsmanager_secret.aurora[0].id
   secret_string = jsonencode({
@@ -37,12 +37,12 @@ resource "aws_secretsmanager_secret_version" "aurora" {
 }
 
 data "aws_vpc" "default" {
-  count   = var.enable_aurora ? 1 : 0
+  count   = 1
   default = true
 }
 
 data "aws_subnets" "aurora" {
-  count = var.enable_aurora ? 1 : 0
+  count = 1
   filter {
     name   = "vpc-id"
     values = [data.aws_vpc.default[0].id]
@@ -50,7 +50,7 @@ data "aws_subnets" "aurora" {
 }
 
 resource "aws_db_subnet_group" "aurora" {
-  count = var.enable_aurora ? 1 : 0
+  count = 1
 
   name       = "${local.name}-aurora"
   subnet_ids = data.aws_subnets.aurora[0].ids
@@ -62,7 +62,7 @@ resource "aws_db_subnet_group" "aurora" {
 }
 
 resource "aws_security_group" "aurora" {
-  count = var.enable_aurora ? 1 : 0
+  count = 1
 
   name        = "${local.name}-aurora"
   description = "Aurora PostgreSQL for ${local.name}"
@@ -90,7 +90,7 @@ resource "aws_security_group" "aurora" {
 }
 
 resource "aws_security_group" "api_lambda" {
-  count = var.enable_aurora ? 1 : 0
+  count = 1
 
   name        = "${local.name}-api-lambda"
   description = "Lambda ENI (API) for ${local.name}"
@@ -110,7 +110,7 @@ resource "aws_security_group" "api_lambda" {
 }
 
 resource "aws_rds_cluster" "aurora" {
-  count = var.enable_aurora ? 1 : 0
+  count = 1
 
   cluster_identifier = "${local.name}-aurora"
   engine             = "aurora-postgresql"
@@ -125,7 +125,6 @@ resource "aws_rds_cluster" "aurora" {
     max_capacity = var.aurora_max_capacity
   }
 
-  # Optional: use Data API for ad-hoc queries; the app uses psycopg + TCP
   enable_http_endpoint = var.aurora_enable_http_endpoint
 
   db_subnet_group_name   = aws_db_subnet_group.aurora[0].name
@@ -147,7 +146,7 @@ resource "aws_rds_cluster" "aurora" {
 }
 
 resource "aws_rds_cluster_instance" "aurora" {
-  count = var.enable_aurora ? 1 : 0
+  count = 1
 
   identifier         = "${local.name}-aurora-1"
   cluster_identifier = aws_rds_cluster.aurora[0].id

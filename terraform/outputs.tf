@@ -49,11 +49,6 @@ output "api_gateway_url" {
   value       = aws_apigatewayv2_api.http.api_endpoint
 }
 
-output "github_actions_role_arn" {
-  description = "IAM role assumed by GitHub Actions via OIDC (if enabled)."
-  value       = var.enable_github_oidc ? aws_iam_role.github_actions[0].arn : null
-}
-
 output "terraform_state_bucket_name" {
   description = "S3 bucket for Terraform state (if manage_terraform_state_backend = true). Use in backend.hcl after first apply + state migration."
   value       = var.manage_terraform_state_backend ? aws_s3_bucket.terraform_state[0].id : null
@@ -64,29 +59,24 @@ output "terraform_state_lock_table_name" {
   value       = var.manage_terraform_state_backend ? aws_dynamodb_table.terraform_state_lock[0].name : null
 }
 
-output "aurora_enabled" {
-  description = "Whether Aurora PostgreSQL is provisioned for the API."
-  value       = var.enable_aurora
-}
-
 output "aurora_cluster_endpoint" {
-  description = "Aurora writer endpoint (if enable_aurora)."
-  value       = var.enable_aurora ? aws_rds_cluster.aurora[0].endpoint : null
+  description = "Aurora writer endpoint."
+  value       = aws_rds_cluster.aurora[0].endpoint
 }
 
 output "aurora_cluster_arn" {
-  description = "Aurora cluster ARN (if enable_aurora)."
-  value       = var.enable_aurora ? aws_rds_cluster.aurora[0].arn : null
+  description = "Aurora cluster ARN."
+  value       = aws_rds_cluster.aurora[0].arn
   sensitive   = true
 }
 
 output "aurora_secret_arn" {
-  description = "Secrets Manager ARN for the Aurora master user/password (if enable_aurora). Lambda has read access."
-  value       = var.enable_aurora ? aws_secretsmanager_secret.aurora[0].arn : null
+  description = "Secrets Manager ARN for the Aurora master user/password. Lambda has read access."
+  value       = aws_secretsmanager_secret.aurora[0].arn
   sensitive   = true
 }
 
 output "aurora_database_name" {
   description = "Logical database name inside the cluster."
-  value       = var.enable_aurora ? var.aurora_database_name : null
+  value       = var.aurora_database_name
 }

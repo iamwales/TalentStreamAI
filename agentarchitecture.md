@@ -1,6 +1,6 @@
 # TalentStreamAI — Agent & System Architecture
 
-This document describes how **AI-assisted job-application generation** is structured in this repository: the **LangGraph** orchestration used for the product API, supporting **tools**, the **Next.js** client, **persistence**, and how **AWS deployment** is intended to evolve (aligned with `terraform/`, `README.md`, and `.github/workflows/deploy-aws.yml`).
+This document describes how **AI-assisted job-application generation** is structured in this repository: the **LangGraph** orchestration used for the product API, supporting **tools**, the **Next.js** client, **persistence**, and how **AWS deployment** is intended to evolve (aligned with `terraform/`, `README.md`, and `.github/workflows/deploy.yml`).
 
 ---
 
@@ -30,7 +30,7 @@ graph TB
     N2 -->|AGENT_MODE=stub| Stub[Stub heuristics<br/>resume_weave, templates]
     N1 -->|AGENT_MODE=stub| Stub
     
-    Orch --> DB[(SQLite documents<br/>profiles, applications)]
+    Orch --> DB[(PostgreSQL: documents<br/>profiles, applications)]
     API -->|uploads| Store[Local disk or S3<br/>UPLOAD_STORAGE]
     
     API -->|optional| Stream[GET /generate/stream<br/>SSE same graph]
@@ -84,7 +84,7 @@ A **`StateGraph`** is compiled once (with `@lru_cache` on the builder) and execu
 
 **Role**: Application-level coordinator (not a LangGraph node).
 
-- Loads **base resume** from SQLite by id (ownership check).
+- Loads **base resume** from PostgreSQL by id (ownership check).
 - If **job URL** present, calls **`fetch_job_description`** (LangChain tool) and flattens to text via **`job_data_to_text`**.
 - If only **pasted JD**, uses that string (length / sanity checks).
 - Invokes **`run_tailor_pipeline`**; persists **tailored document**, **`application_records`**, match metadata (product-configurable score floor, etc.).
@@ -104,7 +104,7 @@ A **`StateGraph`** is compiled once (with `@lru_cache` on the builder) and execu
 
 ## Legacy LangGraph: `workflow.py` (file + URL, multi-LLM nodes)
 
-A **separate** `StateGraph` (fetch job → **parse file** from base64 → ATS → gaps → generate resume/letter/email) exists for **end-to-end upload flows** and demos. The **`endpoints.py`** that referenced it is **not** included in `app/api/router.py` in the current default API surface. Treat it as **second pipeline** to wire when you need **binary resume + URL** in one call without the SQLite document model.
+A **separate** `StateGraph` (fetch job → **parse file** from base64 → ATS → gaps → generate resume/letter/email) exists for **end-to-end upload flows** and demos. The **`endpoints.py`** that referenced it is **not** included in `app/api/router.py` in the current default API surface. Treat it as **second pipeline** to wire when you need **binary resume + URL** in one call without the same document model.
 
 ---
 
@@ -125,7 +125,7 @@ sequenceDiagram
     participant J as Job Fetcher Tool
     participant G as LangGraph
     participant L as LlmClient optional
-    participant D as SQLite
+    participant D as PostgreSQL
 
     U->>F: Submit job URL or JD + base resume id
     F->>A: POST /api/v1/applications/tailor Bearer token
@@ -207,12 +207,12 @@ graph LR
 
 ## AWS & Deployment (Align With Repository State)
 
-> **As of this repository:** Terraform under `terraform/` is the live stack. **`.github/workflows/deploy-aws.yml`** runs on **push to `main`** (defaults to **dev**) or **workflow_dispatch** and runs `scripts/deploy.sh` (Lambda build, `terraform apply`, static site → S3, CloudFront invalidation) with **OIDC** to AWS.
+> **As of this repository:** Terraform under `terraform/` is the live stack. **`.github/workflows/deploy.yml`** runs on **push to `main`** (defaults to **dev**) or **workflow_dispatch** and runs `scripts/deploy.sh` (Lambda build, `terraform apply`, static site → S3, CloudFront invalidation) with **OIDC** to AWS.
 
 **Intended** direction (from `terraform/main.tf` comments and `README.md`):
 
 1. **Network** — VPC, subnets, routing (or account landing zone).
-2. **Data** — e.g. Aurora Serverless v2 + Secrets; SQLite is dev/single-node only.
+2. **Data** — **Aurora Serverless v2 (PostgreSQL)** in AWS; local dev uses the same `DATABASE_URL` pattern against Docker or any Postgres.
 3. **Secrets** — AWS Secrets Manager for LLM keys, Clerk config, etc.
 4. **Compute** — **ECS Fargate** and/or **Lambda** behind **API Gateway**; container images in **ECR** (FastAPI + LangGraph worker).
 5. **Edge** — **CloudFront** + **S3** for the **static Next.js** export; API either same host via custom domain routing or public API URL in `NEXT_PUBLIC_API_URL`.
@@ -220,7 +220,7 @@ graph LR
 
 **Local / staging parity**: `docker-compose.yml` runs **backend :8000** and **frontend :3000** with **AUTH_MODE=disabled** optional; production requires stricter settings per `app/main.py` startup checks.
 
-**Helper scripts** (from `README.md`): `scripts/deploy-aws.sh` (Terraform **plan**), `scripts/destroy-aws.sh`, optional `TALENTSTREAM_USE_LOCAL_TF_STATE=1` for local state.
+**Helper scripts** (from the root `README.md`): `scripts/deploy.sh` (end-to-end apply + frontend) and `scripts/destroy.sh` (tear down an environment after emptying S3 app buckets when present).
 
 ---
 
@@ -230,7 +230,7 @@ graph LR
 - **Human-in-the-loop** node before persisting `application_records`.
 - **A/B** model routing or structured output validation per node.
 - **Wiring** `workflow.py` to a **public** route if you need **one-shot** file+URL without prior upload.
-- **CI deploy:** `deploy-aws.yml` uses OIDC, `terraform apply`, S3 sync for `out/`, and **CloudFront** invalidation (no ECR in the default path).
+- **CI deploy:** `deploy.yml` uses OIDC, `terraform apply`, S3 sync for `out/`, and **CloudFront** invalidation (no ECR in the default path).
 
 ---
 

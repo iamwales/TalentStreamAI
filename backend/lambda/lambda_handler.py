@@ -32,13 +32,9 @@ def _load_secrets_from_env() -> None:
 
 
 def _apply_lambda_runtime_defaults() -> None:
-  # Lambda has a read-only filesystem except /tmp. Local dev continues to use repo `.data/`.
   if (os.environ.get("TALENTSTREAM_AWS_LAMBDA") or "").strip() != "1":
     return
   os.environ.setdefault("UPLOAD_DIR", "/tmp/uploads")
-  if (os.environ.get("DB_BACKEND") or "sqlite").strip().lower() == "postgres":
-    return
-  os.environ.setdefault("SQLITE_PATH", "/tmp/talentstreamai.sqlite3")
 
 
 def _configure_aurora_database_url() -> None:
@@ -62,7 +58,6 @@ def _configure_aurora_database_url() -> None:
   os.environ["DATABASE_URL"] = (
     f"postgresql://{quote_plus(user_final)}:{quote_plus(password)}@{host}:{port}/{db}"
   )
-  os.environ.setdefault("DB_BACKEND", "postgres")
 
 
 _load_secrets_from_env()

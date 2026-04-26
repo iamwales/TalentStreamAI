@@ -54,6 +54,7 @@ Located in `backend/app/tools/`:
 Required in `.env`:
 | Key | Description |
 | --- | --- |
+| `DATABASE_URL` | `postgresql://…` — e.g. local Docker Postgres or a dev Aurora tunnel. |
 | `OPENROUTER_API_KEY` / `OPENAI_API_KEY` | At least one for `AGENT_MODE=llm`: OpenRouter for chat if set, else `OPENAI_API_KEY` (see `.env.example`). |
 | `LANGFUSE_*` | Optional: Langfuse keys for API-side LLM observability (see `.env.example`). |
 
@@ -71,10 +72,11 @@ Secrets stay out of git. Copy `.env.example` at the **repository root** to `.env
 
 ## First-time local setup (without Docker)
 
+You need a **PostgreSQL** instance and `DATABASE_URL` in the repo root `.env` (see `.env.example`).
+
 ```bash
-chmod +x scripts/*.sh   # first clone only
-cp .env.example .env    # optional but recommended
-./scripts/bootstrap-local.sh
+cp .env.example .env   # set DATABASE_URL to e.g. postgresql://user:pass@127.0.0.1:5432/talentstreamai
+cd backend && uv sync && cd ../frontend && npm install
 ```
 
 Start each service in its own terminal:
@@ -100,6 +102,7 @@ Both FastAPI (`pydantic-settings`) and Next.js (via `dotenv-cli` in `frontend/pa
 | `API_HOST` | API | Bind address inside the container or host. |
 | `API_PORT` | API | Port for Uvicorn when you run it manually. |
 | `CORS_ORIGINS` | API | Comma-separated browser origins allowed to call the API. |
+| `DATABASE_URL` | API | **Required.** `postgresql://…` to your Postgres (Docker Compose provides one; in AWS, Lambda gets this from Aurora via `lambda_handler`). |
 | `NEXT_PUBLIC_API_URL` | UI (build + browser) | Public API base URL the browser calls. Leave empty for production builds that should call same-origin `/api/*` through CloudFront. |
 | `DEPLOYMENT_ENVIRONMENT` | API (`/api/v1/health` metadata) | Optional label such as `local`, `dev`, `staging`, or `prod`. |
 | `OPENROUTER_API_KEY` | API | OpenRouter key; used for chat when set (with `LLM_BASE_URL` for OpenRouter). |
@@ -109,51 +112,24 @@ Both FastAPI (`pydantic-settings`) and Next.js (via `dotenv-cli` in `frontend/pa
 ## Run the full stack in Docker
 
 ```bash
-chmod +x scripts/*.sh   # first clone only
-cp .env.example .env      # optional; run.sh exports it for Compose variable substitution
-./scripts/run.sh
+cp .env.example .env   # optional; Compose can substitute from this file
+docker compose up --build
 ```
 
-- API on `http://localhost:8000`
+- Postgres on `localhost:5432` and API on `http://localhost:8000`
 - UI on `http://localhost:3000` (**`next dev`** inside Compose — hot reload, not a production `next build`)
-- **Why the first run can feel slow:** `./scripts/run.sh` runs `docker compose up --build`. The backend image pulls base layers and runs `uv sync` once; the frontend image runs **`npm ci`** during **`docker compose build`**. After that, Compose just starts the container; the UI is **`next dev`** from `frontend/Dockerfile`. To pick up new frontend dependencies after you edit **`package-lock.json`**, run `docker compose build frontend` (or `docker compose up --build`) again.
+- **Why the first run can feel slow:** the first `docker compose up --build` pulls image layers, runs `uv sync` in the backend image, and runs **`npm ci`** when building the frontend. After that, the UI is **`next dev`**. If you change **`package-lock.json`**, run `docker compose build frontend` (or `docker compose up --build`) again.
 
-Stop everything with `./scripts/stop.sh`.
+Stop the stack with `docker compose down` in the same directory.
 
-## Terraform (single root under `terraform/`)
+## Terraform (root under `terraform/`)
 
-`main.tf` holds the `terraform {}` block (including the empty **S3** `backend "s3" {}` stub), a `locals` name helper, and a **numbered checklist** for the architecture you are building toward. There are **no `resource` blocks** in this repository on purpose.
+`main.tf` includes an **S3** `backend "s3" {}` placeholder; the **deploy** and **destroy** shell scripts (and GitHub Actions) pass `-backend-config` to `terraform init` so the same layout works locally and in CI. Copy `terraform.tfvars.example` to `terraform.tfvars` and fill in at least `clerk_*` and your app secrets. Nothing in the application code hardcodes an environment name; the `environment` variable in Terraform is `dev`, `staging`, or `prod`.
 
-`variables.tf` / `outputs.tf` / `providers.tf` give you tagging defaults and a couple of outputs (`stack_name`, `aws_region`, `next_steps`) so CI and humans can sanity-check wiring before anyone adds modules or resources.
+- **One-shot apply + frontend upload:** from this folder (`TalentStreamAI/`), `./scripts/deploy.sh <dev|staging|prod> [project_name]`
+- **Destroy one environment:** `./scripts/destroy.sh <dev|staging|prod> [project_name]`
 
-Nothing in the FastAPI or Next.js code hardcodes `dev`/`staging`/`prod`. Terraform’s `environment` variable is validated to those three values for tags and future state keys.
-
-### Remote state
-
-The `terraform {}` block declares an **S3 backend** (empty configuration). Every `terraform init` needs either:
-
-- `terraform/backend.hcl` (copy `terraform/backend.hcl.example`), or
-- `TALENTSTREAM_USE_LOCAL_TF_STATE=1` with `./scripts/deploy-aws.sh` for disposable local state (not for teams).
-
-### Plan / destroy helpers
-
-```bash
-cd terraform
-cp terraform.tfvars.example terraform.tfvars
-# set aws_region, project_name, environment (dev | staging | prod)
-```
-
-From the repository root:
-
-```bash
-./scripts/deploy-aws.sh            # writes a plan (no apply)
-./scripts/deploy-aws.sh staging
-TF_ENVIRONMENT=prod ./scripts/deploy-aws.sh
-```
-
-`./scripts/destroy-aws.sh` is a thin wrapper around `terraform destroy` for when resources eventually exist.
-
-**AWS deployment (Terraform, CLI, GitHub Actions)** is documented in the **[root `README.md`](../README.md)** (one level up from this folder).
+The first time you use **remote** state, you may need a one-time `terraform init -reconfigure -backend=false` and apply so the state bucket and lock table exist, then **migrate** state to S3 using the same backend values as the scripts. Full steps and the **list of GitHub secrets** to set in the repository are in the **[root `README.md`](../README.md)**.
 
 ## Project structure
 
@@ -180,19 +156,19 @@ TalentStreamAI/
 │   ├── next.config.ts
 │   └── package.json
 ├── terraform/                       # AWS scaffold (no resources yet)
-│   ├── main.tf                      # terraform {} + locals + architecture checklist
+│   ├── main.tf
 │   ├── variables.tf
 │   ├── outputs.tf
 │   ├── providers.tf
-│   ├── backend.hcl.example
+│   ├── aurora.tf
+│   ├── terraform_state.tf
 │   ├── terraform.tfvars.example
 │   └── .terraform.lock.hcl
 ├── scripts/
-│   ├── bootstrap-local.sh           # uv sync + npm install
-│   ├── run.sh / stop.sh             # Docker Compose up / down
-│   └── deploy-aws.sh / destroy-aws.sh   # Terraform plan / destroy helpers
+│   ├── deploy.sh                    # Lambda pack + terraform apply + Next export → S3 + invalidation
+│   └── destroy.sh                    # empty app buckets + terraform destroy
 ├── .github/
-│   ├── workflows/                   # CI + deploy placeholder workflows
+│   ├── workflows/                   # deploy + destroy
 │   └── aws/
 │       └── github-oidc-trust-policy.json.example
 ├── docker-compose.yml               # Local API (:8000) + Next dev server (:3000)
@@ -203,13 +179,10 @@ TalentStreamAI/
 
 ## GitHub Actions
 
-- **`ci.yml`:** backend import check and frontend lint/build.
-- **`terraform.yml`:** on relevant PRs, Lambda build plus Terraform `fmt` / `init` / `validate` (no AWS apply in that job).
-- **`deploy-aws.yml`:** push to `main` (deploy **dev** by default) or **workflow_dispatch** to choose **dev** / **staging** / **prod**; runs `scripts/deploy.sh` with OIDC (see the root deployment guide).
+- **`deploy.yml`:** on **push to `main`** (deploys **dev**) or **workflow_dispatch** to pick **dev** / **staging** / **prod**; calls `scripts/deploy.sh` with OIDC.
+- **`destroy.yml`:** **workflow_dispatch** only, with a typed confirmation, calling `scripts/destroy.sh`.
 
-Details and the secrets list are in the **[root deployment guide](../README.md)**.
-
-For OIDC trust policy shaping, see `.github/aws/github-oidc-trust-policy.json.example` and replace `ACCOUNT_ID`, `GITHUB_ORG`, and `REPO` before attaching it to an IAM role.
+Details and the **expected repository secrets and environments** are in the **[root deployment guide](../README.md)**. For a trust policy template for the IAM role GitHub will assume, see **`.github/aws/github-oidc-trust-policy.json.example`** and substitute your account, org, and repository.
 
 ## Where feature work should land
 
@@ -233,9 +206,8 @@ Add pytest, Ruff, or mypy when the API surface grows; the scaffold stays intenti
 ## Troubleshooting quick hits
 
 - **UI shows “Backend not responding.”** Confirm Uvicorn is listening on `8000`, `CORS_ORIGINS` includes your UI origin, and `NEXT_PUBLIC_API_URL` matches how your browser reaches the API.
-- **`docker compose` cannot reach Docker.** Start Docker Desktop (macOS/Windows) or the Linux daemon, then rerun `./scripts/run.sh`.
-- **`http://localhost:3000` does nothing.** Confirm the frontend container is up (`docker compose ps`) and check `docker compose logs frontend`. If **`docker compose build frontend`** fails or the container exits with **137**, raise **Memory** in Docker Desktop (Settings → Resources), then rebuild. After **`package-lock.json`** changes, run `docker compose build frontend` (or `./scripts/run.sh` with `--build`) again.
-- **Terraform init asks for backend settings.** Create `terraform/backend.hcl` or export `TALENTSTREAM_USE_LOCAL_TF_STATE=1` for disposable local state.
-- **GitHub Actions.** The bundled workflows are placeholders only; there is nothing to “fix” for credentials until you replace them with real jobs.
+- **`docker compose` cannot reach Docker.** Start Docker Desktop (macOS/Windows) or the Linux daemon, then from this directory run `docker compose up --build`.
+- **`http://localhost:3000` does nothing.** Confirm the frontend container is up (`docker compose ps`) and check `docker compose logs frontend`. If **`docker compose build frontend`** fails or the container exits with **137**, raise **Memory** in Docker Desktop (Settings → Resources), then rebuild. After **`package-lock.json`** changes, run `docker compose build frontend` (or `docker compose up --build`) again.
+- **Terraform init in CI** fails (missing state bucket, etc.): do the [first-time remote state and migrate step](../README.md#first-time-s3-state-backend-and-github) from your machine.
 
-For **deployment steps** (AWS, Terraform, GitHub), see the **[root `README.md`](../README.md)**.
+For **deployment and GitHub settings**, use the **[root `README.md`](../README.md)**.

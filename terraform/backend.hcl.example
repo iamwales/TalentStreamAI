@@ -1,19 +1,15 @@
-# Copy to "backend.hcl" (gitignored) for remote Terraform state after the state bucket exists.
+# Optional: copy to `backend.hcl` (gitignored) and pass the same -backend-config as `scripts/deploy.sh`
+# for one-off `terraform` commands, after the state bucket exists.
 #
-# The S3 bucket and DynamoDB lock table are created by this same Terraform project
-# (`terraform_state.tf`) when `manage_terraform_state_backend = true`.
+# First local apply with S3 not configured:
+#   terraform init -reconfigure -backend=false
+#   terraform apply
+# Then migrate, using the bucket/lock from outputs and `key` = env/<environment>/terraform.tfstate (match deploy.sh):
 #
-# First run:  terraform init && terraform apply   (default local state; no backend_s3.tf yet)
-# Before S3:  cp backend_s3.tf.example backend_s3.tf
-# Then set bucket + dynamodb_table from outputs:
-#   terraform output -raw terraform_state_bucket_name
-#   terraform output -raw terraform_state_lock_table_name
-# Migrate:     terraform init -migrate-state -backend-config=backend.hcl
-# GitHub Actions: set TF_STATE_* secrets to the same values.
+#   terraform init -migrate-state -backend-config=bucket=... -backend-config="key=env/dev/terraform.tfstate" ...
 
-bucket         = "REPLACE_AFTER_FIRST_APPLY"
-key            = "talentstreamai/dev/terraform.tfstate"
-# Must match the region where the bucket was created (same as aws_region in terraform.tfvars). Wrong region → S3 301 error on init.
-region         = "us-east-1"
-dynamodb_table = "REPLACE_AFTER_FIRST_APPLY"
+bucket         = "REPLACE_WITH_terraform_state_bucket_name"
+key            = "env/dev/terraform.tfstate"
+region         = "us-east-1" # must match the bucket
+dynamodb_table = "REPLACE_WITH_terraform_state_lock_table_name"
 encrypt        = true

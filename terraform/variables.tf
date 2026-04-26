@@ -20,24 +20,6 @@ variable "environment" {
   }
 }
 
-variable "enable_github_oidc" {
-  type        = bool
-  description = "If true, create GitHub Actions OIDC provider + deploy role."
-  default     = true
-}
-
-variable "github_repository" {
-  type        = string
-  description = "GitHub repository in OWNER/REPO format for the OIDC role trust (e.g. my-org/TalentStreamAI). When enable_github_oidc is true, do not leave the default; CI should pass -var (see deploy workflow). See also checks.tf."
-  default     = "CHANGE_ME/CHANGE_ME"
-}
-
-variable "create_github_oidc_provider" {
-  type        = bool
-  description = "If true, create the account-level `token.actions.githubusercontent.com` OIDC provider. Set false if it already exists (e.g. another project created it) to avoid EntityAlreadyExists; Terraform will look it up by ARN instead."
-  default     = true
-}
-
 variable "manage_terraform_state_backend" {
   type        = bool
   description = "Create S3 bucket + DynamoDB table for Terraform remote state. Set false only if you use an existing backend and configure backend.hcl yourself."
@@ -162,14 +144,8 @@ variable "app_secrets_json" {
 }
 
 # -----------------------------------------------------------------------------
-# Aurora PostgreSQL (Serverless v2) — app database for the API Lambda
+# Aurora PostgreSQL (Serverless v2) — always created; API Lambda uses DATABASE_URL (see lambda_handler)
 # -----------------------------------------------------------------------------
-
-variable "enable_aurora" {
-  type        = bool
-  description = "If true, create Aurora Serverless v2 PostgreSQL, run Lambda in the default VPC, and set DB_BACKEND=postgres. If false, the API uses SQLite on /tmp in Lambda (simpler, not suitable for production scale)."
-  default     = true
-}
 
 variable "aurora_min_capacity" {
   type        = number

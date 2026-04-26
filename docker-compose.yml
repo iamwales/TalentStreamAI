@@ -1,4 +1,20 @@
 services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: talentstreamai
+      POSTGRES_PASSWORD: talentstreamai
+      POSTGRES_DB: talentstreamai
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U talentstreamai -d talentstreamai"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
   backend:
     build:
       context: ./backend
@@ -24,10 +40,8 @@ services:
       LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.2}
       OPENROUTER_REFERER: ${OPENROUTER_REFERER:-}
       OPENROUTER_TITLE: ${OPENROUTER_TITLE:-}
-      SQLITE_PATH: ${SQLITE_PATH:-.data/talentstreamai.sqlite3}
+      DATABASE_URL: postgresql://talentstreamai:talentstreamai@postgres:5432/talentstreamai
       UPLOAD_DIR: ${UPLOAD_DIR:-.data/uploads}
-      SQLITE_BUSY_TIMEOUT_MS: ${SQLITE_BUSY_TIMEOUT_MS:-5000}
-      SQLITE_ENABLE_WAL: ${SQLITE_ENABLE_WAL:-true}
       UPLOAD_STORAGE: ${UPLOAD_STORAGE:-none}
       S3_BUCKET: ${S3_BUCKET:-}
       S3_PREFIX: ${S3_PREFIX:-uploads/}
@@ -41,6 +55,9 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   frontend:
     build:
@@ -53,3 +70,6 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+
+volumes:
+  pgdata:

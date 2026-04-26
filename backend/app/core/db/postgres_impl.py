@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 """
-PostgreSQL storage (Aurora Serverless v2 or any `DATABASE_URL`).
-
-Used in **AWS** when Terraform provisions Aurora and sets `DB_BACKEND=postgres`.
+PostgreSQL storage (Aurora Serverless v2 in AWS or any `DATABASE_URL` for local dev).
 """
 
 import json
@@ -22,7 +20,7 @@ from app.core.config import settings
 def _connection_url() -> str:
     base = (settings.database_url or "").strip()
     if not base:
-        raise RuntimeError("DATABASE_URL is required when DB_BACKEND=postgres")
+        raise RuntimeError("DATABASE_URL is required")
     if "sslmode=" in base:
         return base
     if os.environ.get("TALENTSTREAM_AWS_LAMBDA") == "1":

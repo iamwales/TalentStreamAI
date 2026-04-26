@@ -63,5 +63,5 @@ htmlcov/
 
 .cursor
 
-# Backend local data (sqlite, uploads)
+# Backend local data (Postgres in Docker, uploads, etc.)
 backend/.data/
