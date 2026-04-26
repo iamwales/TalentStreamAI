@@ -48,6 +48,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Match aws_lambda_function.api (python3.12) so pip gets cp312 manylinux wheels.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - uses: astral-sh/setup-uv@v5
         with:
           version: "latest"
@@ -89,6 +94,10 @@ jobs:
         working-directory: ${{ env.TF_DIR }}
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - uses: astral-sh/setup-uv@v5
         with:
