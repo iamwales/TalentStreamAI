@@ -28,7 +28,7 @@ variable "enable_github_oidc" {
 
 variable "github_repository" {
   type        = string
-  description = "GitHub repository in OWNER/REPO format used to scope the OIDC role (e.g. my-org/TalentStreamAI)."
+  description = "GitHub repository in OWNER/REPO format for the OIDC role trust (e.g. my-org/TalentStreamAI). When enable_github_oidc is true, do not leave the default; CI should pass -var (see deploy workflow). See also checks.tf."
   default     = "CHANGE_ME/CHANGE_ME"
 }
 

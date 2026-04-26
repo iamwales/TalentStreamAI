@@ -1,29 +1,97 @@
-name: Deploy (manual)
+name: Deploy to AWS
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       environment:
-        description: Environment to deploy
+        description: "Environment to deploy"
+        required: true
+        default: "dev"
         type: choice
         options:
           - dev
           - staging
           - prod
-        default: dev
 
 permissions:
-  contents: read
   id-token: write
+  contents: read
+
+# One deploy at a time per target environment
+concurrency:
+  group: deploy-aws-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'dev' }}
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  DEPLOY_ENV: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'dev' }}
+  AWS_REGION: us-east-1
 
 jobs:
   deploy:
+    name: Deploy ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'dev' }}
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    environment: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'dev' }}
 
-      - name: Dispatch note
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: github-actions-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.5"
+          terraform_wrapper: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Run deployment
+        id: run_deploy
         run: |
-          echo "This workflow is kept for manual deployments."
-          echo "Prefer the unified Terraform pipeline in .github/workflows/terraform.yml."
-          echo "Environment: ${{ inputs.environment }}"
+          set -euo pipefail
+          export CI=1
+          export TF_STATE_BUCKET="${{ secrets.TF_STATE_BUCKET }}"
+          export TF_STATE_REGION="${{ secrets.TF_STATE_REGION }}"
+          export TF_LOCK_TABLE="${{ secrets.TF_LOCK_TABLE }}"
+          chmod +x scripts/deploy.sh
+          ./scripts/deploy.sh "${{ env.DEPLOY_ENV }}"
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          NEXT_DISABLE_API_REWRITE: "1"
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          TF_VAR_clerk_jwks_url: ${{ secrets.CLERK_JWKS_URL }}
+          TF_VAR_clerk_issuer: ${{ secrets.CLERK_ISSUER }}
+          TF_VAR_app_secrets_json: ${{ secrets.APP_SECRETS_JSON }}
+
+      - name: Deployment summary (outputs)
+        working-directory: ./terraform
+        if: success()
+        run: |
+          echo "CloudFront: $(terraform output -raw cloudfront_url)"
+          echo "API:        $(terraform output -raw api_gateway_url)"
+          echo "S3:         $(terraform output -raw frontend_bucket_name)"

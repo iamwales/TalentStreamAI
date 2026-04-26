@@ -47,6 +47,9 @@ jobs:
 
       - name: Build (static export)
         working-directory: frontend
+        env:
+          # .env is not in git; dotenv -e ../.env would be empty in CI. Inline from Actions secrets.
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
         run: npm run build
 
   terraform:

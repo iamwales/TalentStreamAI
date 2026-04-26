@@ -201,15 +201,15 @@ TalentStreamAI/
 └── README.md
 ```
 
-## GitHub Actions (scaffold)
+## GitHub Actions
 
-`.github/workflows/ci.yml` runs on pushes and pull requests to `main` but **only checks out the repository** and echoes that real CI is still to be defined (backend uv/tests, frontend npm/lint/build, Terraform fmt/validate, and so on).
+- **`ci.yml`:** backend import check and frontend lint/build.
+- **`terraform.yml`:** on relevant PRs, Lambda build plus Terraform `fmt` / `init` / `validate` (no AWS apply in that job).
+- **`deploy-aws.yml`:** push to `main` (deploy **dev** by default) or **workflow_dispatch** to choose **dev** / **staging** / **prod**; runs `scripts/deploy.sh` with OIDC (see the root deployment guide).
 
-`.github/workflows/deploy-aws.yml` is **manual (`workflow_dispatch`) only** and does **not** call AWS or Terraform. It prints a short checklist for when you add OIDC, secrets, `terraform apply`, image pushes, and static asset publishing.
+Details and the secrets list are in the **[root deployment guide](../README.md)**.
 
 For OIDC trust policy shaping, see `.github/aws/github-oidc-trust-policy.json.example` and replace `ACCOUNT_ID`, `GITHUB_ORG`, and `REPO` before attaching it to an IAM role.
-
-**Current deploy automation** (if present in the repo) is described in the **[root deployment guide](../README.md)**.
 
 ## Where feature work should land
 

@@ -2,6 +2,10 @@ aws_region   = "us-east-1"
 project_name = "talentstreamai"
 environment  = "dev"
 
+# Required for GitHub Actions AWS OIDC: must match the repo that runs the workflow (OWNER/REPO from the URL).
+# If wrong, CI fails: Not authorized to perform sts:AssumeRoleWithWebIdentity
+# github_repository = "iamwales/TalentStreamAI"
+
 # Create S3 + DynamoDB for remote state (see README §1 for first-time init/migrate). Set false to use an existing backend only.
 manage_terraform_state_backend = true
 

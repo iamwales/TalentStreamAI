@@ -207,7 +207,7 @@ graph LR
 
 ## AWS & Deployment (Align With Repository State)
 
-> **As of this repository:** Terraform under `terraform/` is a **scaffold** — `main.tf` declares **no `resource` blocks**; the checklist describes the **target** shape. **`.github/workflows/deploy-aws.yml`** is **manual** (`workflow_dispatch`) and **does not** push to AWS, ECR, or run `terraform apply` (see the workflow’s echo step).
+> **As of this repository:** Terraform under `terraform/` is the live stack. **`.github/workflows/deploy-aws.yml`** runs on **push to `main`** (defaults to **dev**) or **workflow_dispatch** and runs `scripts/deploy.sh` (Lambda build, `terraform apply`, static site → S3, CloudFront invalidation) with **OIDC** to AWS.
 
 **Intended** direction (from `terraform/main.tf` comments and `README.md`):
 
@@ -216,7 +216,7 @@ graph LR
 3. **Secrets** — AWS Secrets Manager for LLM keys, Clerk config, etc.
 4. **Compute** — **ECS Fargate** and/or **Lambda** behind **API Gateway**; container images in **ECR** (FastAPI + LangGraph worker).
 5. **Edge** — **CloudFront** + **S3** for the **static Next.js** export; API either same host via custom domain routing or public API URL in `NEXT_PUBLIC_API_URL`.
-6. **CI/CD** — **GitHub Actions** with **OIDC** to AWS (see `.github/aws/github-oidc-trust-policy.json.example`); replace the deploy placeholder with: build → push image → `terraform apply` (or split plan/apply), invalidate CloudFront, etc.
+6. **CI/CD** — **GitHub Actions** with **OIDC** to AWS (see `.github/aws/github-oidc-trust-policy.json.example`); the repo’s **deploy** workflow runs `scripts/deploy.sh` (no separate container image in the default path—API is **Lambda** behind API Gateway).
 
 **Local / staging parity**: `docker-compose.yml` runs **backend :8000** and **frontend :3000** with **AUTH_MODE=disabled** optional; production requires stricter settings per `app/main.py` startup checks.
 
@@ -230,7 +230,7 @@ graph LR
 - **Human-in-the-loop** node before persisting `application_records`.
 - **A/B** model routing or structured output validation per node.
 - **Wiring** `workflow.py` to a **public** route if you need **one-shot** file+URL without prior upload.
-- **Real** `deploy-aws.yml` jobs: OIDC role, ECR push, Terraform apply, S3 sync for `out/`, **CloudFront** invalidation.
+- **CI deploy:** `deploy-aws.yml` uses OIDC, `terraform apply`, S3 sync for `out/`, and **CloudFront** invalidation (no ECR in the default path).
 
 ---
 
