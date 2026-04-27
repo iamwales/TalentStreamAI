@@ -49,11 +49,60 @@ data "aws_subnets" "aurora" {
   }
 }
 
+# Lambda ENIs do not get public IPs. Use private subnets with a NAT route
+# so auth/LLM calls to public services (Clerk/OpenRouter/etc.) can egress.
+locals {
+  nat_subnet_id      = data.aws_subnets.aurora[0].ids[0]
+  private_subnet_ids = slice(data.aws_subnets.aurora[0].ids, 1, length(data.aws_subnets.aurora[0].ids))
+}
+
+data "aws_internet_gateway" "default" {
+  filter {
+    name   = "attachment.vpc-id"
+    values = [data.aws_vpc.default[0].id]
+  }
+}
+
+resource "aws_eip" "nat" {
+  domain = "vpc"
+}
+
+resource "aws_nat_gateway" "main" {
+  allocation_id = aws_eip.nat.id
+  subnet_id     = local.nat_subnet_id
+
+  tags = {
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
+
+resource "aws_route_table" "private" {
+  vpc_id = data.aws_vpc.default[0].id
+
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.main.id
+  }
+
+  tags = {
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
+
+resource "aws_route_table_association" "private_subnets" {
+  for_each = toset(local.private_subnet_ids)
+
+  subnet_id      = each.value
+  route_table_id = aws_route_table.private.id
+}
+
 resource "aws_db_subnet_group" "aurora" {
   count = 1
 
   name       = "${local.name}-aurora"
-  subnet_ids = data.aws_subnets.aurora[0].ids
+  subnet_ids = local.private_subnet_ids
 
   tags = {
     Project     = var.project_name
@@ -144,7 +193,7 @@ resource "aws_vpc_endpoint" "secretsmanager" {
   service_name        = "com.amazonaws.${var.aws_region}.secretsmanager"
   vpc_endpoint_type   = "Interface"
   private_dns_enabled = true
-  subnet_ids          = data.aws_subnets.aurora[0].ids
+  subnet_ids          = local.private_subnet_ids
   security_group_ids  = [aws_security_group.secretsmanager_endpoint[0].id]
 
   tags = {
