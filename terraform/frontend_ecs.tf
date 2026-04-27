@@ -147,6 +147,32 @@ resource "aws_iam_role" "frontend_ecs_task" {
   })
 }
 
+# Permissions required by ECS Exec (`enable_execute_command = true` on the
+# service). These have to live on the *task* role (not the execution role).
+# Without them ECS Exec sessions can't open SSM channels; the container itself
+# starts fine, but `aws ecs execute-command` fails silently and shells into the
+# task during incident response are impossible.
+resource "aws_iam_role_policy" "frontend_ecs_task_ssm_exec" {
+  name = "${local.name}-frontend-ecs-task-ssm-exec"
+  role = aws_iam_role.frontend_ecs_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ssmmessages:CreateControlChannel",
+          "ssmmessages:CreateDataChannel",
+          "ssmmessages:OpenControlChannel",
+          "ssmmessages:OpenDataChannel",
+        ]
+        Resource = "*"
+      },
+    ]
+  })
+}
+
 resource "aws_security_group" "frontend_alb" {
   name        = "${local.name}-frontend-alb"
   description = "ALB ingress for frontend"
