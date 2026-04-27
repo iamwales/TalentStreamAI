@@ -1,81 +1,114 @@
 # TalentStreamAI
 
-Squad Five capstone for the Andela AI Engineering Bootcamp. The goal is straightforward on paper: help a candidate move from “I found a role” to “I submitted strong materials” without burning an afternoon on manual rewrites. This repository is the **scaffold** only—FastAPI for the API surface, a static-export Next.js client, and a **Terraform root** that is intentionally empty except for provider wiring, variables, outputs, and comments that describe the AWS shape you are heading toward (Aurora Serverless v2 + Data API, Secrets Manager, ECS or Lambda for LangGraph/OpenRouter, API Gateway + Clerk JWT, CloudFront in front of S3). Implementers add resources when they are ready.
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Mangum](https://img.shields.io/badge/Mangum-Lambda%20adapter-009688)](https://github.com/Kludex/mangum)
+[![uv](https://img.shields.io/badge/uv-package%20manager-DE5FE9?logo=astral&logoColor=white)](https://docs.astral.sh/uv/)
+[![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.9-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-15-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
+[![Clerk](https://img.shields.io/badge/Clerk-Auth-6C47FF?logo=clerk&logoColor=white)](https://clerk.com)
+[![LangGraph](https://img.shields.io/badge/LangGraph-1.1-1C3C3C)](https://github.com/langchain-ai/langgraph)
+[![LangChain](https://img.shields.io/badge/LangChain-OpenAI-1C3C3C?logo=langchain&logoColor=white)](https://python.langchain.com)
+[![OpenRouter](https://img.shields.io/badge/OpenRouter-LLM%20API-8B5CF6)](https://openrouter.ai)
+[![OpenAI](https://img.shields.io/badge/OpenAI-SDK-412991?logo=openai&logoColor=white)](https://github.com/openai/openai-python)
+[![Langfuse](https://img.shields.io/badge/Langfuse-observability-000?logo=langfuse&logoColor=white)](https://langfuse.com)
+[![Terraform](https://img.shields.io/badge/Terraform-IaC-844FBA?logo=terraform&logoColor=white)](https://www.terraform.io)
+[![Docker](https://img.shields.io/badge/Docker-build%20%26%20run-2496ED?logo=docker&logoColor=white)](https://www.docker.com)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Aurora%2Flocal-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org)
+[![boto3](https://img.shields.io/badge/boto3-AWS%20SDK-FF9900?logo=amazonaws&logoColor=white)](https://aws.amazon.com/sdk-for-python/)
+[![Deploy](https://img.shields.io/badge/CI-Deploy-2088FF?logo=githubactions&logoColor=white)](.github/workflows/deploy.yml)
+[![Destroy](https://img.shields.io/badge/CI-Destroy-6B7280?logo=githubactions&logoColor=white)](.github/workflows/destroy.yml)
 
-Product direction (for context while you build):
+**AWS** (see `terraform/`)
 
-- Ingest a resume plus a job posting URL.
- - Diff the candidate's story against the role (ATS-oriented gap analysis).
- - Generate refreshed resume copy, a cover letter with narrative structure, and a Gmail-ready draft.
+[![Amazon API Gateway](https://img.shields.io/badge/API%20Gateway-HTTP-FF4F8B?logo=amazonapigateway&logoColor=white)](https://aws.amazon.com/api-gateway/) [![AWS Lambda](https://img.shields.io/badge/Lambda-FastAPI%20%28Mangum%29-FF9900?logo=awslambda&logoColor=white)](https://aws.amazon.com/lambda/) [![ECR](https://img.shields.io/badge/ECR-frontend%20images-FF9900?logo=amazonaws&logoColor=white)](https://aws.amazon.com/ecr/) [![ECS](https://img.shields.io/badge/ECS-Fargate-FF9900?logo=amazonaws&logoColor=white)](https://aws.amazon.com/fargate/) [![ALB](https://img.shields.io/badge/ALB-Next.js%20UI-FF9900?logo=amazonaws&logoColor=white)](https://aws.amazon.com/elasticloadbalancing/application-load-balancer/) [![CloudFront](https://img.shields.io/badge/CloudFront-CDN%20%2B%20routing-FF9900?logo=amazonaws&logoColor=white)](https://aws.amazon.com/cloudfront/) [![Aurora](https://img.shields.io/badge/Aurora-PostgreSQL-FF9900?logo=amazonaws&logoColor=white)](https://aws.amazon.com/rds/aurora/)
 
-## Implementation Status
+[![S3](https://img.shields.io/badge/S3-buckets%20%28incl.%20uploads%20%26%20state%29-FF9900?logo=amazons3&logoColor=white)](https://aws.amazon.com/s3/) [![Secrets Manager](https://img.shields.io/badge/Secrets%20Manager-app%20%26%20Aurora-FF9900?logo=amazonaws&logoColor=white)](https://aws.amazon.com/secrets-manager/) [![CloudWatch](https://img.shields.io/badge/CloudWatch-logs%20%26%20metrics-FF9900?logo=amazoncloudwatch&logoColor=white)](https://aws.amazon.com/cloudwatch/) [![DynamoDB](https://img.shields.io/badge/DynamoDB-TF%20state%20lock-FF9900?logo=amazondynamodb&logoColor=white)](https://aws.amazon.com/dynamodb/) [![IAM](https://img.shields.io/badge/IAM-roles%20%26%20policies-FF9900?logo=amazonaws&logoColor=white)](https://aws.amazon.com/iam/) [![VPC](https://img.shields.io/badge/VPC-Lambda%20%2B%20Aurora%20%2B%20Fargate-FF9900?logo=amazonaws&logoColor=white)](https://aws.amazon.com/vpc/)
 
-The backend is now fully implemented with a LangGraph-based workflow for generating job application materials.
+*Optional:* VPC interface endpoints (e.g. ECR, Secrets Manager) for private subnets where present in stack.
 
-### API Endpoints
+*Live* GitHub **Actions status** images (pass/fail) use your repo path, for example:  
+`https://github.com/<org>/<repo>/actions/workflows/deploy.yml/badge.svg` — same for `destroy.yml`.
 
-| Endpoint | Method | Description |
-| --- | --- | --- |
-| `/api/v1/apply` | POST | Run the complete TalentStreamAI workflow |
-| `/api/v1/fetch-job` | POST | Fetch and parse a job description from URL |
-| `/api/v1/parse-resume` | POST | Parse a resume file (PDF or DOCX) |
-| `/api/v1/score-ats` | POST | Score resume against job description for ATS compatibility |
+Squad Five capstone for the Andela AI Engineering Bootcamp. The product helps a candidate move from “I found a role” to “I submitted strong materials” without spending an afternoon on manual rewrites: **Clerk**-authenticated users keep a **base resume**, run **tailor** jobs against a job URL or pasted description, and review **applications** with match analysis, a tailored resume, cover letter, and email draft.
 
-#### Apply Endpoint (Main)
+The repository ships a full **FastAPI** backend, a **Next.js** app, **LangGraph** orchestration for LLM steps, and **PostgreSQL** (local Docker or **Aurora** in AWS). In **AWS**, `scripts/deploy.sh` builds a **Next.js production image** (`next start`), pushes it to **ECR**, and Terraform runs it on **ECS Fargate** behind an **ALB**; **CloudFront** is the public edge (it routes to the ALB for the UI, and to API Gateway for `/api/*`). An **S3** bucket for the “frontend” name still exists in Terraform (e.g. backups / legacy) but **the live site is not served as a static export from S3**—it is the container on ECS. Locally you use `next dev` (Docker Compose or host); production browser traffic hits CloudFront → ALB → ECS, not S3 object hosting for HTML.
 
-The main `/api/v1/apply` endpoint accepts:
-- `job_url` (str): URL of the job posting
-- `resume` (UploadFile): Resume file (PDF or DOCX)
+### Product flow (high level)
 
-Returns job data, resume data, ATS score, gap analysis, tailored resume, cover letter, and email draft.
+```mermaid
+flowchart TD
+  U[User via Clerk] --> BR[Base resume]
+  U --> JP[Job posting: URL or paste]
+  BR --> T[Tailor pipeline]
+  JP --> T
+  T --> MA[Match and gap analysis]
+  T --> TR[Refreshed resume copy]
+  T --> CL[Cover letter]
+  T --> EM[Gmail-ready email draft]
+  MA --> APP[Application record to review]
+  TR --> APP
+  CL --> APP
+  EM --> APP
+```
 
-### LangGraph Workflow
+**Product direction (for context):**
 
-The workflow consists of these nodes executed in sequence:
+- Ingest a resume plus a job posting URL (or paste).
+- Diff the candidate’s story against the role (ATS-oriented gap analysis).
+- Generate refreshed resume copy, a cover letter with narrative structure, and a Gmail-ready draft.
 
-1. **fetch_job**: Fetches job description from URL using web scraping
-2. **parse_resume**: Parses PDF/DOCX resume into structured data
-3. **score_ats**: Scores resume against job requirements
-4. **analyze_gaps**: Identifies keyword and skill gaps
-5. **generate_resume**: Generates ATS-optimized tailored resume (LLM)
-6. **generate_cover_letter**: Generates narrative cover letter (LLM)
-7. **generate_email**: Generates Gmail-ready email draft (LLM)
+---
 
-### Tools
+## Architecture
 
-Located in `backend/app/tools/`:
-- **job_fetcher.py**: Fetches and parses job descriptions from URLs
-- **resume_parser.py**: Parses PDF and DOCX resumes
-- **ats_scorer.py**: Scores resumes against job requirements for ATS compatibility
-- **models.py**: Pydantic models for all tool inputs and outputs
+Documentation is split by audience:
 
-### Environment Variables
+| Doc | What it covers |
+| --- | --- |
+| [**agentarchitecture.md**](agentarchitecture.md) | End-to-end **system and AI architecture**: product flow, LangGraph `StateGraph` (tailor pipeline), tools, persistence, Next.js + AWS, observability, deployment notes, and optional legacy/MCP paths. |
+| [**backend/docs/ARCHITECTURE.md**](backend/docs/ARCHITECTURE.md) | **Backend-only** view: engineering principles, data model, **mounted HTTP API** contract, logging/metrics/Langfuse, runtime config, and AWS Lambda behavior. |
 
-Required in `.env`:
+Start with **agentarchitecture.md** for the big picture; use **ARCHITECTURE.md** when working inside `backend/`.
+
+---
+
+### Environment variables (repo root `.env`)
+
+Required for local development (see [`.env.example`](.env.example) for the full list):
+
 | Key | Description |
 | --- | --- |
-| `DATABASE_URL` | `postgresql://…` — e.g. local Docker Postgres or a dev Aurora tunnel. |
-| `OPENROUTER_API_KEY` / `OPENAI_API_KEY` | At least one for `AGENT_MODE=llm`: OpenRouter for chat if set, else `OPENAI_API_KEY` (see `.env.example`). |
-| `LANGFUSE_*` | Optional: Langfuse keys for API-side LLM observability (see `.env.example`). |
+| `DATABASE_URL` | `postgresql://…` — e.g. Docker Compose Postgres or a dev database. |
+| `CORS_ORIGINS` | Comma-separated browser origins (e.g. `http://localhost:3000`). |
+| `OPENROUTER_API_KEY` / `OPENAI_API_KEY` | At least one for `AGENT_MODE=llm` (OpenRouter preferred when set; see `.env.example`). |
+| `LANGFUSE_*` | Optional: Langfuse keys and base URL for LLM tracing in development. |
+
+Both FastAPI (`pydantic-settings`) and Next.js (via `dotenv-cli` in `frontend/package.json` scripts) read the **same** repo-root `.env`. For **AWS / GitHub Actions**, use the [root deployment guide](../README.md) and put API keys in `app_secrets_json` / `APP_SECRETS_JSON` (see that guide for Langfuse in Lambda).
+
+---
 
 ## Prerequisites
 
-Pick what matches how you work day to day:
+- **Docker Desktop** (or Docker Engine) and the Compose plugin for the one-command local stack.
+- **[uv](https://docs.astral.sh/uv/getting-started/installation/)** for the Python service (lockfile-backed).
+- **Python 3.12** (`backend/.python-version`) and **Node.js** matching `frontend/.nvmrc` (e.g. 22.x) for host-only development.
+- **Terraform 1.6+** and **AWS CLI v2** when you deploy to AWS.
+- An **AWS account** with credentials when running Terraform or deploy scripts.
 
-- **Docker Desktop** (or Docker Engine) plus the Compose plugin for the one-command local stack.
-- **[uv](https://docs.astral.sh/uv/getting-started/installation/)** for installing and running the Python service (lockfile-backed).
-- **Python 3.12** (`backend/.python-version` helps pyenv/asdf) and **Node.js 22** (e.g. 22.9; see `frontend/.nvmrc`) for host-only development.
-- **Terraform 1.6+** and the **AWS CLI v2** when you touch AWS resources.
-- An **AWS account** with credentials (`AWS_PROFILE` or standard access keys) when running Terraform or deploy workflows locally.
+Secrets stay out of git. Copy `.env.example` to `.env` at the **TalentStreamAI** folder root (same level as `backend/` and `frontend/`).
 
-Secrets stay out of git. Copy `.env.example` at the **repository root** to `.env` and fill in values for your machine. Deployed environments should load the same keys from your secret manager or GitHub Actions secrets/variables.
+---
 
 ## First-time local setup (without Docker)
 
-You need a **PostgreSQL** instance and `DATABASE_URL` in the repo root `.env` (see `.env.example`).
+You need a **PostgreSQL** instance and `DATABASE_URL` in the repo root `.env`.
 
 ```bash
-cp .env.example .env   # set DATABASE_URL to e.g. postgresql://user:pass@127.0.0.1:5432/talentstreamai
+cp .env.example .env   # set DATABASE_URL, CORS_ORIGINS, and LLM keys
 cd backend && uv sync && cd ../frontend && npm install
 ```
 
@@ -91,107 +124,110 @@ cd frontend
 npm run dev
 ```
 
-Open `http://localhost:3000` for the UI and `http://localhost:8000/docs` for OpenAPI. The home page calls `/api/v1/health` so you can confirm both halves are talking.
+Open `http://localhost:3000` for the UI and `http://localhost:8000/docs` for OpenAPI. The app uses `/api/v1/health` and `/api/v1/ready` for health checks.
 
-### Environment variables (repo root `.env`)
-
-Both FastAPI (`pydantic-settings`) and Next.js (via `dotenv-cli` in `frontend/package.json` scripts) read from the **same** `.env` at the repository root. Keep per-environment values out of source code—set them here locally, or inject them in CI/CD.
+### Common `.env` keys (detail)
 
 | Key | Consumers | Purpose |
 | --- | --- | --- |
-| `API_HOST` | API | Bind address inside the container or host. |
-| `API_PORT` | API | Port for Uvicorn when you run it manually. |
-| `CORS_ORIGINS` | API | Comma-separated browser origins allowed to call the API. |
-| `DATABASE_URL` | API | **Required.** `postgresql://…` to your Postgres (Docker Compose provides one; in AWS, Lambda gets this from Aurora via `lambda_handler`). |
-| `NEXT_PUBLIC_API_URL` | UI (build + browser) | Public API base URL the browser calls. Leave empty for production builds that should call same-origin `/api/*` through CloudFront. |
-| `DEPLOYMENT_ENVIRONMENT` | API (`/api/v1/health` metadata) | Optional label such as `local`, `dev`, `staging`, or `prod`. |
-| `OPENROUTER_API_KEY` | API | OpenRouter key; used for chat when set (with `LLM_BASE_URL` for OpenRouter). |
-| `OPENAI_API_KEY` | API | Used for chat when `OPENROUTER_API_KEY` is unset; optional when OpenRouter is set. |
-| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | API | Optional. [Langfuse](https://langfuse.com) project keys for LLM tracing; set with `LANGFUSE_BASE_URL` (or `LANGFUSE_HOST`) for EU/US/self-hosted. |
+| `API_HOST` / `API_PORT` | API | Bind when running Uvicorn manually. |
+| `CORS_ORIGINS` | API | Browser origins allowed to call the API. |
+| `DATABASE_URL` | API | **Required.** PostgreSQL DSN. In AWS, Lambda sets this from Aurora in `lambda_handler`. |
+| `NEXT_PUBLIC_API_URL` | UI | Public API base URL. Leave empty for production builds that use same-origin `/api/*` through CloudFront. |
+| `DEPLOYMENT_ENVIRONMENT` | API | Optional label (`local`, `dev`, `staging`, `prod`). |
+| `OPENROUTER_API_KEY` / `OPENAI_API_KEY` | API | LLM authentication (see `Settings.chat_completions_api_key` in code). |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | API | Optional Langfuse tracing; see **backend/docs/ARCHITECTURE.md**. |
+
+---
 
 ## Run the full stack in Docker
 
 ```bash
-cp .env.example .env   # optional; Compose can substitute from this file
+cp .env.example .env
 docker compose up --build
 ```
 
-- Postgres on `localhost:5432` and API on `http://localhost:8000`
-- UI on `http://localhost:3000` (**`next dev`** inside Compose — hot reload, not a production `next build`)
-- **Why the first run can feel slow:** the first `docker compose up --build` pulls image layers, runs `uv sync` in the backend image, and runs **`npm ci`** when building the frontend. After that, the UI is **`next dev`**. If you change **`package-lock.json`**, run `docker compose build frontend` (or `docker compose up --build`) again.
+- Postgres (if defined in Compose), API on `http://localhost:8000`, UI on `http://localhost:3000` (`next dev` — not a production `next build`).
+- The first run can be slow while images build and dependencies install. After **`package-lock.json`** changes, run `docker compose build frontend` (or `docker compose up --build`) again.
 
-Stop the stack with `docker compose down` in the same directory.
+Stop with `docker compose down` in this directory.
 
-## Terraform (root under `terraform/`)
+---
 
-`main.tf` includes an **S3** `backend "s3" {}` placeholder; the **deploy** and **destroy** shell scripts (and GitHub Actions) pass `-backend-config` to `terraform init` so the same layout works locally and in CI. Copy `terraform.tfvars.example` to `terraform.tfvars` and fill in at least `clerk_*` and your app secrets. Nothing in the application code hardcodes an environment name; the `environment` variable in Terraform is `dev`, `staging`, or `prod`.
+## What’s implemented
 
-- **One-shot apply + frontend upload:** from this folder (`TalentStreamAI/`), `./scripts/deploy.sh <dev|staging|prod> [project_name]`
-- **Destroy one environment:** `./scripts/destroy.sh <dev|staging|prod> [project_name]`
+### Product API (mounted on the FastAPI app)
 
-The first time you use **remote** state, you may need a one-time `terraform init -reconfigure -backend=false` and apply so the state bucket and lock table exist, then **migrate** state to S3 using the same backend values as the scripts. Full steps and the **list of GitHub secrets** to set in the repository are in the **[root `README.md`](../README.md)**.
+The main user journey uses **Clerk JWTs**, **profile** + **base resume**, and **`POST /api/v1/applications/tailor`**. A concise route list lives in [**backend/docs/ARCHITECTURE.md**](backend/docs/ARCHITECTURE.md#api-surface-frontend-contract); it includes profile, dashboard, applications, resumes, job descriptions, generation (SSE), health, readiness, and metrics.
+
+### LangGraph — two pipelines
+
+1. **Primary (product):** [`app/services/langgraph/streaming_agent.py`](backend/app/services/langgraph/streaming_agent.py) — a **`StateGraph`** with sequential nodes: **analyze** → **resume** → **cover_letter** → **gmail** (`AGENT_MODE=llm` uses `LlmClient`; `stub` uses heuristics). This powers **`run_tailor_pipeline`** and streaming generation. Details: [**agentarchitecture.md**](agentarchitecture.md#langgraph--primary-product-graph-streaming_agentpy).
+
+2. **Legacy (file + URL workflow):** [`app/services/langgraph/workflow.py`](backend/app/services/langgraph/workflow.py) — a seven-node graph (fetch job, parse resume, ATS score, gaps, generate resume/cover letter/email) using **LangChain `ChatOpenAI`**. It is used by `run_talentstream_workflow` and similar call sites; the standalone routes in `app/api/v1/endpoints.py` are **not** mounted on the default `api_router` — the **documented product path** is applications/tailor + stored resume.
+
+### Tools
+
+Under `backend/app/tools/`: **job fetcher**, **resume parser**, **ATS scorer**, and shared **models** — used by the legacy workflow, MCP, and helpers; the tailor path uses the job fetcher when a **job URL** is supplied.
+
+---
+
+## Terraform and deployment
+
+Terraform under `terraform/` defines the AWS stack, including: **API Gateway (HTTP) + Lambda** for the API, **Aurora** + **Secrets Manager**, **ECR** + **ECS Fargate** + **ALB** for the Next.js frontend, **CloudFront** in front of the ALB (and API behavior as defined in `terraform/main.tf`), **S3** for uploads and an app-named frontend bucket (not the primary path for serving the UI in the current design), **VPC** pieces, and observability. **`scripts/deploy.sh`** packages the API Lambda, **builds and pushes the frontend Docker image to ECR** (requires Docker), then runs **`terraform apply`** with `frontend_image_tag` so ECS rolls to the new image; it also invalidates **CloudFront** so clients pick up changes. **Destroy** uses `scripts/destroy.sh`. GitHub Actions uses the same flow with OIDC.
+
+- Copy `terraform/terraform.tfvars.example` to `terraform.tfvars` and set `clerk_*`, `app_secrets_json`, and other inputs (including frontend/ECS-related variables as in the example and `variables.tf`).
+- Full runbook, backend state, and **GitHub secrets** are in the [**root `README.md`](../README.md)**.
+
+---
 
 ## Project structure
 
-Repository root **`TalentStreamAI/`** 
-
 ```text
 TalentStreamAI/
-├── backend/                         # FastAPI API (uv / pyproject.toml)
+├── backend/                    # FastAPI (uv, pyproject.toml)
 │   ├── app/
-│   │   ├── main.py                  # App factory + CORS + router mount
-│   │   ├── api/                     # HTTP routers (e.g. v1/health)
-│   │   ├── core/                    # Settings (reads repo-root .env)
-│   │   └── services/
-│   │       └── langgraph/           # Placeholder for agent graphs / tools
+│   │   ├── main.py             # App factory, CORS, middleware, lifespan
+│   │   ├── api/                # v1 routers (applications, profile, generation, …)
+│   │   ├── core/               # Settings, DB, metrics, logging
+│   │   ├── services/           # tailor_orchestrator, langgraph, llm, …
+│   │   └── tools/              # job fetch, resume parse, ATS
+│   ├── lambda/                 # Lambda entry (Mangum, secrets, DB URL)
+│   ├── docs/
+│   │   └── ARCHITECTURE.md     # Backend architecture & API contract
 │   ├── Dockerfile
-│   ├── pyproject.toml
-│   └── uv.lock
-├── frontend/                        # Next.js 15 (App Router, static export)
-│   ├── src/
-│   │   ├── app/                     # Routes, layouts, pages
-│   │   └── lib/                     # Shared helpers (e.g. API URL builder)
-│   ├── public/                      # Static assets for export
-│   ├── Dockerfile                   # Local `next dev` in Docker (used by Compose)
-│   ├── next.config.ts
-│   └── package.json
-├── terraform/                       # AWS scaffold (no resources yet)
-│   ├── main.tf
-│   ├── variables.tf
-│   ├── outputs.tf
-│   ├── providers.tf
-│   ├── aurora.tf
-│   ├── terraform_state.tf
-│   ├── terraform.tfvars.example
-│   └── .terraform.lock.hcl
-├── scripts/
-│   ├── deploy.sh                    # Lambda pack + terraform apply + Next export → S3 + invalidation
-│   └── destroy.sh                    # empty app buckets + terraform destroy
-├── .github/
-│   ├── workflows/                   # deploy + destroy
-│   └── aws/
-│       └── github-oidc-trust-policy.json.example
-├── docker-compose.yml               # Local API (:8000) + Next dev server (:3000)
-├── .env.example                     # Shared env template (copy to repo-root .env)
-├── .gitignore
-└── README.md
+│   └── pyproject.toml
+├── frontend/                   # Next.js (App Router; prod = Docker `next start` on ECS, not S3 static site)
+├── terraform/                  # AWS resources
+├── scripts/                    # deploy.sh, destroy.sh, ensure-terraform-backend.sh (if present)
+├── .github/workflows/          # deploy.yml, destroy.yml
+├── agentarchitecture.md        # System + AI architecture (start here for diagrams)
+├── docker-compose.yml
+├── .env.example
+└── README.md                   # This file
 ```
+
+---
 
 ## GitHub Actions
 
-- **`deploy.yml`:** on **push to `main`** (deploys **dev**) or **workflow_dispatch** to pick **dev** / **staging** / **prod**; calls `scripts/deploy.sh` with OIDC.
-- **`destroy.yml`:** **workflow_dispatch** only, with a typed confirmation, calling `scripts/destroy.sh`.
+- **`deploy.yml`:** push to **`main`** (default environment per workflow) or **`workflow_dispatch`** for **dev** / **staging** / **prod**; runs `scripts/deploy.sh` with OIDC.
+- **`destroy.yml`:** manual only, with confirmation; runs `scripts/destroy.sh`.
 
-Details and the **expected repository secrets and environments** are in the **[root deployment guide](../README.md)**. For a trust policy template for the IAM role GitHub will assume, see **`.github/aws/github-oidc-trust-policy.json.example`** and substitute your account, org, and repository.
+See the [**root deployment guide**](../README.md) for environments and secrets. For IAM trust policy shaping, use **`.github/aws/github-oidc-trust-policy.json.example`**.
+
+---
 
 ## Where feature work should land
 
-- **FastAPI routers**: add packages under `backend/app/api/v1/` (or new version folders) and include them from `backend/app/api/router.py`.
-- **Agents / LangGraph**: keep graphs, tools, and state machines under `backend/app/services/langgraph/` so onboarding stays predictable.
-- **UI routes and data fetching**: colocate routes in `frontend/src/app` (static export friendly) and keep shared helpers in `frontend/src/lib`.
-- **Infrastructure growth**: add child modules under `terraform/modules/` (or keep everything flat) and call them from `terraform/main.tf` once you outgrow the four-file scaffold.
+- **HTTP API:** new routes under `backend/app/api/v1/`, included from `backend/app/api/router.py`.
+- **Product LangGraph & LLM:** `backend/app/services/langgraph/` and `backend/app/services/llm/`.
+- **UI:** `frontend/src/app` and `frontend/src/lib`.
+- **Infra:** `terraform/` (optionally `terraform/modules/` as the stack grows).
 
-## Quality gates (lightweight for now)
+---
+
+## Quality gates (lightweight)
 
 ```bash
 cd frontend && npm run lint && npm run build
@@ -201,13 +237,14 @@ cd frontend && npm run lint && npm run build
 cd backend && uv sync && uv run python -m compileall -q app
 ```
 
-Add pytest, Ruff, or mypy when the API surface grows; the scaffold stays intentionally small.
+Add pytest, Ruff, or mypy as the API surface hardens.
 
-## Troubleshooting quick hits
+---
 
-- **UI shows “Backend not responding.”** Confirm Uvicorn is listening on `8000`, `CORS_ORIGINS` includes your UI origin, and `NEXT_PUBLIC_API_URL` matches how your browser reaches the API.
-- **`docker compose` cannot reach Docker.** Start Docker Desktop (macOS/Windows) or the Linux daemon, then from this directory run `docker compose up --build`.
-- **`http://localhost:3000` does nothing.** Confirm the frontend container is up (`docker compose ps`) and check `docker compose logs frontend`. If **`docker compose build frontend`** fails or the container exits with **137**, raise **Memory** in Docker Desktop (Settings → Resources), then rebuild. After **`package-lock.json`** changes, run `docker compose build frontend` (or `docker compose up --build`) again.
-- **Terraform init in CI** fails (missing state bucket, etc.): do the [first-time remote state and migrate step](../README.md#first-time-s3-state-backend-and-github) from your machine.
+## Troubleshooting
 
-For **deployment and GitHub settings**, use the **[root `README.md`](../README.md)**.
+- **UI: “Backend not responding.”** Check Uvicorn on `8000`, `CORS_ORIGINS`, and `NEXT_PUBLIC_API_URL` if the browser calls the API on another origin.
+- **Docker won’t start.** Start Docker Desktop / the daemon, then `docker compose up --build` from this folder.
+- **Terraform / CI init fails (state bucket, etc.).** See [first-time remote state](../README.md#first-time-s3-state-backend-and-github) in the root README.
+
+For **deployment, secrets, and AWS**, use the [**root `README.md`](../README.md)**.
