@@ -16,8 +16,8 @@ class Settings(BaseSettings):
     )
 
     # Loaded from API_HOST, API_PORT, CORS_ORIGINS (see repository root .env / .env.example)
-    api_host: str
-    api_port: int
+    api_host: str = "0.0.0.0"
+    api_port: int = 8000
     cors_origins: str
     deployment_environment: str | None = None
     # Chat completions: OPENROUTER_API_KEY when using OpenRouter; else OPENAI_API_KEY alone.
@@ -54,9 +54,9 @@ class Settings(BaseSettings):
     s3_sse: str = "AES256"
     s3_kms_key_id: str | None = None
 
-    agent_mode: str = "stub"
-    llm_base_url: str = "https://api.openai.com"
-    llm_model: str = "gpt-4.1-mini"
+    agent_mode: str = "llm"
+    llm_base_url: str = "https://openrouter.ai/api/v1"
+    llm_model: str = "anthropic/claude-sonnet-4.6"
     llm_timeout_seconds: float = 45.0
     llm_max_tokens: int = 1800
     llm_temperature: float = 0.2
