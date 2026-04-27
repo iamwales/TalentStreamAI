@@ -164,9 +164,13 @@ DB_SUBNET_GROUP_NAME="${LOCAL_NAME}-aurora"
 DB_CLUSTER_IDENTIFIER="${LOCAL_NAME}-aurora"
 DB_CLUSTER_INSTANCE_IDENTIFIER="${LOCAL_NAME}-aurora-1"
 API_LAMBDA_ROLE_NAME="${LOCAL_NAME}-api-lambda-role"
+API_LAMBDA_FUNCTION_NAME="${LOCAL_NAME}-api"
+API_LAMBDA_APP_POLICY_NAME="${LOCAL_NAME}-api-lambda-app"
 APP_SECRET_NAME="${LOCAL_NAME}/app"
 API_LAMBDA_SG_NAME="${LOCAL_NAME}-api-lambda"
 AURORA_SG_NAME="${LOCAL_NAME}-aurora"
+LAMBDA_BASIC_POLICY_ARN="arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+LAMBDA_VPC_POLICY_ARN="arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 
 import_if_missing() {
   local address="$1"
@@ -180,7 +184,9 @@ import_if_missing() {
     IMPORT_CMD+=("${SECRET_ARGS[@]}")
   fi
   IMPORT_CMD+=("$address" "$import_id")
-  "${IMPORT_CMD[@]}" >/dev/null
+  if ! "${IMPORT_CMD[@]}" >/dev/null 2>&1; then
+    echo "Warning: import failed for ${address}. Continuing; terraform apply will report if still required."
+  fi
 }
 
 maybe_import_existing_stack_resources() {
@@ -194,6 +200,45 @@ maybe_import_existing_stack_resources() {
   fi
   if aws iam get-role --role-name "${API_LAMBDA_ROLE_NAME}" >/dev/null 2>&1; then
     import_if_missing "aws_iam_role.api_lambda_role" "${API_LAMBDA_ROLE_NAME}"
+
+    ROLE_ATTACHED_POLICIES=$(aws iam list-attached-role-policies --role-name "${API_LAMBDA_ROLE_NAME}" \
+      --query "AttachedPolicies[].PolicyArn" --output text 2>/dev/null || echo "")
+    if echo "${ROLE_ATTACHED_POLICIES}" | rg -q "${LAMBDA_BASIC_POLICY_ARN}"; then
+      import_if_missing "aws_iam_role_policy_attachment.api_lambda_basic" "${API_LAMBDA_ROLE_NAME}/${LAMBDA_BASIC_POLICY_ARN}"
+    fi
+    if echo "${ROLE_ATTACHED_POLICIES}" | rg -q "${LAMBDA_VPC_POLICY_ARN}"; then
+      import_if_missing "aws_iam_role_policy_attachment.api_lambda_vpc[0]" "${API_LAMBDA_ROLE_NAME}/${LAMBDA_VPC_POLICY_ARN}"
+    fi
+    if aws iam get-role-policy --role-name "${API_LAMBDA_ROLE_NAME}" --policy-name "${API_LAMBDA_APP_POLICY_NAME}" >/dev/null 2>&1; then
+      import_if_missing "aws_iam_role_policy.api_lambda_app" "${API_LAMBDA_ROLE_NAME}:${API_LAMBDA_APP_POLICY_NAME}"
+    fi
+  fi
+  if aws lambda get-function --region "${AWS_REGION}" --function-name "${API_LAMBDA_FUNCTION_NAME}" >/dev/null 2>&1; then
+    import_if_missing "aws_lambda_function.api" "${API_LAMBDA_FUNCTION_NAME}"
+    LAMBDA_POLICY_JSON=$(aws lambda get-policy --region "${AWS_REGION}" --function-name "${API_LAMBDA_FUNCTION_NAME}" \
+      --query "Policy" --output text 2>/dev/null || echo "")
+    if [ -n "${LAMBDA_POLICY_JSON}" ] && [ "${LAMBDA_POLICY_JSON}" != "None" ]; then
+      HAS_API_GW_PERMISSION=$(LAMBDA_POLICY_JSON="${LAMBDA_POLICY_JSON}" python3 - <<'PY'
+import json
+import os
+
+raw = os.environ.get("LAMBDA_POLICY_JSON", "")
+try:
+    policy = json.loads(raw) if raw else {}
+except Exception:
+    print("0")
+    raise SystemExit(0)
+for stmt in policy.get("Statement", []):
+    if stmt.get("Sid") == "AllowExecutionFromAPIGateway":
+        print("1")
+        raise SystemExit(0)
+print("0")
+PY
+)
+      if [ "${HAS_API_GW_PERMISSION}" = "1" ]; then
+        import_if_missing "aws_lambda_permission.api_gw" "${API_LAMBDA_FUNCTION_NAME}/AllowExecutionFromAPIGateway"
+      fi
+    fi
   fi
   if aws secretsmanager describe-secret --region "${AWS_REGION}" --secret-id "${APP_SECRET_NAME}" >/dev/null 2>&1; then
     import_if_missing "aws_secretsmanager_secret.app" "${APP_SECRET_NAME}"
