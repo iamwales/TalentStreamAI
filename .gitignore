@@ -62,6 +62,7 @@ htmlcov/
 .coverage
 
 .cursor
+/scripts/hard-reset-env.sh
 
 # Backend local data (Postgres in Docker, uploads, etc.)
 backend/.data/

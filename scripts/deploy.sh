@@ -141,6 +141,8 @@ LOCAL_NAME="${PROJECT_NAME}-${ENVIRONMENT}"
 FRONTEND_BUCKET_NAME="${LOCAL_NAME}-frontend-${AWS_ACCOUNT_ID}"
 UPLOADS_BUCKET_NAME="${LOCAL_NAME}-uploads-${AWS_ACCOUNT_ID}"
 DB_SUBNET_GROUP_NAME="${LOCAL_NAME}-aurora"
+DB_CLUSTER_IDENTIFIER="${LOCAL_NAME}-aurora"
+DB_CLUSTER_INSTANCE_IDENTIFIER="${LOCAL_NAME}-aurora-1"
 API_LAMBDA_ROLE_NAME="${LOCAL_NAME}-api-lambda-role"
 APP_SECRET_NAME="${LOCAL_NAME}/app"
 API_LAMBDA_SG_NAME="${LOCAL_NAME}-api-lambda"
@@ -178,6 +180,12 @@ maybe_import_existing_stack_resources() {
   fi
   if aws rds describe-db-subnet-groups --region "${AWS_REGION}" --db-subnet-group-name "${DB_SUBNET_GROUP_NAME}" >/dev/null 2>&1; then
     import_if_missing "aws_db_subnet_group.aurora[0]" "${DB_SUBNET_GROUP_NAME}"
+  fi
+  if aws rds describe-db-clusters --region "${AWS_REGION}" --db-cluster-identifier "${DB_CLUSTER_IDENTIFIER}" >/dev/null 2>&1; then
+    import_if_missing "aws_rds_cluster.aurora[0]" "${DB_CLUSTER_IDENTIFIER}"
+  fi
+  if aws rds describe-db-instances --region "${AWS_REGION}" --db-instance-identifier "${DB_CLUSTER_INSTANCE_IDENTIFIER}" >/dev/null 2>&1; then
+    import_if_missing "aws_rds_cluster_instance.aurora[0]" "${DB_CLUSTER_INSTANCE_IDENTIFIER}"
   fi
   AURORA_SECRET_NAME=$(aws secretsmanager list-secrets --region "${AWS_REGION}" \
     --filters "Key=name,Values=${LOCAL_NAME}-aurora-" \
