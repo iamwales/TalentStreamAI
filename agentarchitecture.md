@@ -2,6 +2,8 @@
 
 This document describes how **AI-assisted job-application generation** is structured in this repository: the **LangGraph** orchestration used for the product API, supporting **tools**, the **Next.js** client, **persistence**, and how **AWS deployment** is intended to evolve (aligned with `terraform/`, `README.md`, and `.github/workflows/deploy.yml`).
 
+For **HTTP routes, data model, logging, and metrics** without the system diagram, see [**backend/docs/ARCHITECTURE.md**](backend/docs/ARCHITECTURE.md).
+
 ---
 
 ## High-Level Collaboration Overview
@@ -10,7 +12,7 @@ The product’s main path is **not** a fleet of separate micro-agents with messa
 
 ```mermaid
 graph TB
-    User[User / Browser] -->|HTTPS + Clerk JWT| UI[Next.js App<br/>static export in prod]
+    User[User / Browser] -->|HTTPS + Clerk JWT| UI[Next.js App<br/>ECS Fargate + ALB + CloudFront]
     UI -->|REST /api/v1/*| API[FastAPI API]
     
     API -->|POST /applications/tailor| Orch[Tailor Orchestrator<br/>app/services/tailor_orchestrator.py]
@@ -207,16 +209,16 @@ graph LR
 
 ## AWS & Deployment (Align With Repository State)
 
-> **As of this repository:** Terraform under `terraform/` is the live stack. **`.github/workflows/deploy.yml`** runs on **push to `main`** (defaults to **dev**) or **workflow_dispatch** and runs `scripts/deploy.sh` (Lambda build, `terraform apply`, static site → S3, CloudFront invalidation) with **OIDC** to AWS.
+> **As of this repository:** Terraform under `terraform/` is the live stack. **`.github/workflows/deploy.yml`** runs `scripts/deploy.sh`: **Lambda** zip for the API, **Docker build + ECR push** for the **Next.js** image (`next start`), **`terraform apply`** (including **ECS Fargate** + **ALB** for the frontend), then **CloudFront invalidation**, with **OIDC** to AWS.
 
-**Intended** direction (from `terraform/main.tf` comments and `README.md`):
+**Current shape** (see `terraform/main.tf`, `terraform/frontend_ecs.tf`, `scripts/deploy.sh`):
 
-1. **Network** — VPC, subnets, routing (or account landing zone).
+1. **Network** — Default VPC (or project VPC) with subnets, security groups, and optional VPC endpoints (e.g. ECR, Secrets Manager) for Fargate.
 2. **Data** — **Aurora Serverless v2 (PostgreSQL)** in AWS; local dev uses the same `DATABASE_URL` pattern against Docker or any Postgres.
-3. **Secrets** — AWS Secrets Manager for LLM keys, Clerk config, etc.
-4. **Compute** — **ECS Fargate** and/or **Lambda** behind **API Gateway**; container images in **ECR** (FastAPI + LangGraph worker).
-5. **Edge** — **CloudFront** + **S3** for the **static Next.js** export; API either same host via custom domain routing or public API URL in `NEXT_PUBLIC_API_URL`.
-6. **CI/CD** — **GitHub Actions** with **OIDC** to AWS (see `.github/aws/github-oidc-trust-policy.json.example`); the repo’s **deploy** workflow runs `scripts/deploy.sh` (no separate container image in the default path—API is **Lambda** behind API Gateway).
+3. **Secrets** — AWS Secrets Manager for app JSON (LLM keys, Clerk, etc.) and Aurora credentials.
+4. **API** — **API Gateway (HTTP) + Lambda** (FastAPI via Mangum); no separate FastAPI container in the default path.
+5. **UI** — **ECR** image for the **Next.js** app; **ECS Fargate** service behind an **ALB**; **CloudFront** in front (origin for the default route is the ALB; `terraform/main.tf` also wires `/api/*` to the API). An **S3** bucket still exists for the app namespace (e.g. uploads or legacy) but **the browser UI in production is not a static site synced from `out/` to S3**—it is the **container** behind CloudFront.
+6. **CI/CD** — **GitHub Actions** with **OIDC** (see `.github/aws/github-oidc-trust-policy.json.example`); the deploy job must have **Docker** available to build/push the frontend image.
 
 **Local / staging parity**: `docker-compose.yml` runs **backend :8000** and **frontend :3000** with **AUTH_MODE=disabled** optional; production requires stricter settings per `app/main.py` startup checks.
 
@@ -230,7 +232,7 @@ graph LR
 - **Human-in-the-loop** node before persisting `application_records`.
 - **A/B** model routing or structured output validation per node.
 - **Wiring** `workflow.py` to a **public** route if you need **one-shot** file+URL without prior upload.
-- **CI deploy:** `deploy.yml` uses OIDC, `terraform apply`, S3 sync for `out/`, and **CloudFront** invalidation (no ECR in the default path).
+- **CI deploy:** `deploy.yml` uses OIDC, `terraform apply` after **ECR push** for the frontend image, and **CloudFront** invalidation.
 
 ---
 
