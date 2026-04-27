@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-shot: Lambda zip → Terraform apply (remote S3) → Next export → S3 upload
+# One-shot: Lambda zip + Frontend container image → Terraform apply (remote S3 backend)
 # Usage: ./scripts/deploy.sh <dev|staging|prod>
 # Requires: AWS creds, TF_VAR_* (see README). Optional: terraform/secrets.tfvars
 
@@ -160,6 +160,7 @@ fi
 LOCAL_NAME="${PROJECT_NAME}-${ENVIRONMENT}"
 FRONTEND_BUCKET_NAME="${LOCAL_NAME}-frontend-${AWS_ACCOUNT_ID}"
 UPLOADS_BUCKET_NAME="${LOCAL_NAME}-uploads-${AWS_ACCOUNT_ID}"
+FRONTEND_ECR_REPO_NAME="${LOCAL_NAME}-frontend"
 DB_SUBNET_GROUP_NAME="${LOCAL_NAME}-aurora"
 DB_CLUSTER_IDENTIFIER="${LOCAL_NAME}-aurora"
 DB_CLUSTER_INSTANCE_IDENTIFIER="${LOCAL_NAME}-aurora-1"
@@ -287,32 +288,39 @@ if [ "${AUTO_IMPORT_EXISTING_RESOURCES:-1}" = "1" ]; then
   maybe_import_existing_stack_resources
 fi
 
+echo "Building and pushing frontend container image..."
+if ! command -v docker >/dev/null 2>&1; then
+  echo "Docker is required to build and push the frontend ECS image." >&2
+  exit 1
+fi
+aws ecr describe-repositories --region "${AWS_REGION}" --repository-names "${FRONTEND_ECR_REPO_NAME}" >/dev/null 2>&1 || \
+  aws ecr create-repository --region "${AWS_REGION}" --repository-name "${FRONTEND_ECR_REPO_NAME}" >/dev/null
+import_if_missing "aws_ecr_repository.frontend" "${FRONTEND_ECR_REPO_NAME}"
+
+ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+aws ecr get-login-password --region "${AWS_REGION}" | docker login --username AWS --password-stdin "${ECR_REGISTRY}" >/dev/null
+FRONTEND_IMAGE_TAG="${FRONTEND_IMAGE_TAG:-${GITHUB_SHA:-}}"
+if [ -z "${FRONTEND_IMAGE_TAG}" ]; then
+  FRONTEND_IMAGE_TAG="$(date +%Y%m%d%H%M%S)"
+fi
+FRONTEND_IMAGE_TAG="${FRONTEND_IMAGE_TAG:0:40}"
+FRONTEND_IMAGE_URI="${ECR_REGISTRY}/${FRONTEND_ECR_REPO_NAME}:${FRONTEND_IMAGE_TAG}"
+docker build \
+  --build-arg NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-}" \
+  --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}" \
+  -t "${FRONTEND_IMAGE_URI}" "${ROOT}/frontend"
+docker push "${FRONTEND_IMAGE_URI}" >/dev/null
+echo "Pushed frontend image: ${FRONTEND_IMAGE_URI}"
+
 echo "Applying Terraform…"
-APPLY=(terraform apply -auto-approve -var="project_name=${PROJECT_NAME}" -var="environment=${ENVIRONMENT}" -lock-timeout=5m)
+APPLY=(terraform apply -auto-approve -var="project_name=${PROJECT_NAME}" -var="environment=${ENVIRONMENT}" -var="frontend_image_tag=${FRONTEND_IMAGE_TAG}" -lock-timeout=5m)
 if [ "${#SECRET_ARGS[@]}" -gt 0 ]; then APPLY+=("${SECRET_ARGS[@]}"); fi
 "${APPLY[@]}"
 
 API_URL=$(terraform output -raw api_gateway_url)
-FRONTEND_BUCKET=$(terraform output -raw frontend_bucket_name)
 CUSTOM_URL=""; CUSTOM_URL=$(terraform output -raw cloudfront_url 2>/dev/null) || true
 
-# --- 3) Frontend (Next static export) ---
-cd "${ROOT}/frontend"
-# Default production behavior: same-origin `/api/*` behind CloudFront.
-# Set NEXT_PUBLIC_API_URL explicitly only if you intentionally want cross-origin browser calls.
-echo "NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-}" > .env.production
-echo "Frontend API base (NEXT_PUBLIC_API_URL): ${NEXT_PUBLIC_API_URL:-<same-origin /api>}"
-# Bake Clerk key if the pipeline provides it
-if [ -n "${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}" ]; then
-  echo "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}" >> .env.production
-fi
-export DISABLE_ESLINT_PLUGIN=1
-export NEXT_DISABLE_API_REWRITE=1
-npm install
-export NEXT_STATIC_EXPORT=1
-npx --yes next build
-aws s3 sync ./out "s3://${FRONTEND_BUCKET}/" --delete
-cd "$ROOT"
+# --- 3) CloudFront cache invalidation ---
 CF_ID=$(cd "${ROOT}/terraform" && terraform output -raw cloudfront_distribution_id)
 aws cloudfront create-invalidation --distribution-id "$CF_ID" --paths "/*" >/dev/null
-echo "Done. CloudFront: $CUSTOM_URL  API: $API_URL  Bucket: $FRONTEND_BUCKET"
+echo "Done. CloudFront: $CUSTOM_URL  API: $API_URL  FrontendImage: $FRONTEND_IMAGE_URI"

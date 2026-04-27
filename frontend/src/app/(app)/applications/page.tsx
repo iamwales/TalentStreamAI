@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 
 import { MatchBadge } from "@/components/match-badge";
@@ -10,19 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useApplications } from "@/lib/hooks/use-api";
-import ApplicationDetailClient from "./[id]/application-detail-client";
 
 export default function ApplicationsPage() {
-  const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null);
   const { data: applications, isLoading } = useApplications();
-
-  useEffect(() => {
-    setSelectedApplicationId(new URLSearchParams(window.location.search).get("applicationId"));
-  }, []);
-
-  if (selectedApplicationId) {
-    return <ApplicationDetailClient applicationId={selectedApplicationId} />;
-  }
 
   return (
     <div className="space-y-6">
@@ -63,7 +52,7 @@ export default function ApplicationsPage() {
           (applications ?? []).map((app) => (
             <Link
               key={app.id}
-              href={`/applications?applicationId=${app.id}`}
+              href={`/applications/${app.id}`}
               className="block"
             >
               <Card className="transition-colors hover:bg-accent/40">

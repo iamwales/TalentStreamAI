@@ -227,3 +227,37 @@ variable "next_public" {
   default     = {}
   description = "Map of `NEXT_PUBLIC_*` keys/values to bake into the static export build (pipeline responsibility)."
 }
+
+# -----------------------------------------------------------------------------
+# Frontend ECS/Fargate deployment
+# -----------------------------------------------------------------------------
+
+variable "frontend_image_tag" {
+  type        = string
+  description = "ECR image tag for the frontend Next.js server container."
+  default     = "latest"
+}
+
+variable "frontend_container_port" {
+  type        = number
+  description = "Container/listener port for the frontend service."
+  default     = 3000
+}
+
+variable "frontend_task_cpu" {
+  type        = number
+  description = "Fargate task CPU units for frontend service."
+  default     = 512
+}
+
+variable "frontend_task_memory" {
+  type        = number
+  description = "Fargate task memory (MiB) for frontend service."
+  default     = 1024
+}
+
+variable "frontend_desired_count" {
+  type        = number
+  description = "Desired running task count for frontend ECS service."
+  default     = 1
+}

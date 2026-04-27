@@ -19,8 +19,18 @@ output "cloudfront_distribution_id" {
 }
 
 output "frontend_bucket_name" {
-  description = "S3 bucket that stores the static frontend."
+  description = "S3 bucket reserved for frontend assets/backups (CloudFront now serves from ECS/ALB)."
   value       = aws_s3_bucket.frontend.id
+}
+
+output "frontend_alb_dns_name" {
+  description = "ALB DNS name serving the Next.js frontend ECS service."
+  value       = aws_lb.frontend.dns_name
+}
+
+output "frontend_ecr_repository_url" {
+  description = "ECR repository URL for frontend container images."
+  value       = aws_ecr_repository.frontend.repository_url
 }
 
 output "uploads_bucket_name" {
