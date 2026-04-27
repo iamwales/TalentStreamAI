@@ -107,8 +107,11 @@ resource "aws_route_table_association" "private_subnets" {
 resource "aws_db_subnet_group" "aurora" {
   count = 1
 
-  name       = "${local.name}-aurora"
-  subnet_ids = local.private_subnet_ids
+  name = "${local.name}-aurora"
+  # Use the full VPC subnet list so that re-partitioning subnets for ALB/ECS
+  # (public vs private) never tries to remove a subnet that Aurora is
+  # actively using. RDS only places the cluster instance(s) in 1-2 of these.
+  subnet_ids = data.aws_subnets.aurora[0].ids
 
   tags = {
     Project     = var.project_name
