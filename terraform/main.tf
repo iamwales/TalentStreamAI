@@ -22,7 +22,7 @@ locals {
   name = "${var.project_name}-${var.environment}"
 }
 
-# - CloudFront + S3 (OAI) for the static Next.js export
+# - CloudFront + ECS/ALB for the Next.js frontend server
 # - API Gateway v2 + Lambda for `/api/*`
 # - GitHub Actions: assume a role you create manually (OIDC) or use long-lived keys for bootstrap only; see README
 
@@ -30,7 +30,7 @@ data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
 # -----------------------------
-# Frontend (S3 + CloudFront)
+# Frontend buckets + uploads
 # -----------------------------
 
 resource "aws_s3_bucket" "frontend" {
@@ -58,10 +58,6 @@ resource "aws_s3_bucket_versioning" "frontend" {
   versioning_configuration {
     status = "Enabled"
   }
-}
-
-resource "aws_cloudfront_origin_access_identity" "frontend" {
-  comment = "OAI for ${local.name} frontend bucket"
 }
 
 resource "aws_s3_bucket" "uploads" {
@@ -292,21 +288,23 @@ resource "aws_lambda_permission" "api_gw" {
 }
 
 # -----------------------------
-# CloudFront (S3 default, API on /api/*)
+# CloudFront (ECS/ALB default, API on /api/*)
 # -----------------------------
 
 resource "aws_cloudfront_distribution" "cdn" {
-  enabled             = true
-  is_ipv6_enabled     = true
-  default_root_object = "index.html"
-  comment             = "TalentStreamAI static frontend + API"
+  enabled         = true
+  is_ipv6_enabled = true
+  comment         = "TalentStreamAI frontend + API"
 
   origin {
-    domain_name = aws_s3_bucket.frontend.bucket_regional_domain_name
-    origin_id   = "s3-frontend"
+    domain_name = aws_lb.frontend.dns_name
+    origin_id   = "frontend-alb"
 
-    s3_origin_config {
-      origin_access_identity = aws_cloudfront_origin_access_identity.frontend.cloudfront_access_identity_path
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "http-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
     }
   }
 
@@ -323,17 +321,22 @@ resource "aws_cloudfront_distribution" "cdn" {
   }
 
   default_cache_behavior {
-    target_origin_id       = "s3-frontend"
+    target_origin_id       = "frontend-alb"
     viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
-    cached_methods         = ["GET", "HEAD"]
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD", "OPTIONS"]
 
     forwarded_values {
-      query_string = false
+      query_string = true
+      headers      = ["*"]
       cookies {
-        forward = "none"
+        forward = "all"
       }
     }
+
+    min_ttl     = 0
+    default_ttl = 0
+    max_ttl     = 0
   }
 
   ordered_cache_behavior {
@@ -367,18 +370,6 @@ resource "aws_cloudfront_distribution" "cdn" {
     max_ttl     = 0
   }
 
-  custom_error_response {
-    error_code         = 403
-    response_code      = 200
-    response_page_path = "/index.html"
-  }
-
-  custom_error_response {
-    error_code         = 404
-    response_code      = 200
-    response_page_path = "/index.html"
-  }
-
   restrictions {
     geo_restriction {
       restriction_type = "none"
@@ -389,7 +380,7 @@ resource "aws_cloudfront_distribution" "cdn" {
     cloudfront_default_certificate = true
   }
 
-  depends_on = [aws_s3_bucket_public_access_block.frontend]
+  depends_on = [aws_lb_listener.frontend_http]
 }
 
 locals {
@@ -404,21 +395,3 @@ locals {
   )
 }
 
-resource "aws_s3_bucket_policy" "frontend" {
-  bucket = aws_s3_bucket.frontend.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "AllowCloudFrontOAIRead"
-        Effect = "Allow"
-        Principal = {
-          AWS = aws_cloudfront_origin_access_identity.frontend.iam_arn
-        }
-        Action   = ["s3:GetObject"]
-        Resource = "${aws_s3_bucket.frontend.arn}/*"
-      }
-    ]
-  })
-}

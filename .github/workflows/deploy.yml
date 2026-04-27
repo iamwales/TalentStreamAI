@@ -100,4 +100,5 @@ jobs:
           echo "## Deployed" >> $GITHUB_STEP_SUMMARY
           echo "CloudFront: \`$(terraform output -raw cloudfront_url)\`" >> $GITHUB_STEP_SUMMARY
           echo "API: \`$(terraform output -raw api_gateway_url)\`" >> $GITHUB_STEP_SUMMARY
-          echo "Frontend bucket: \`$(terraform output -raw frontend_bucket_name)\`" >> $GITHUB_STEP_SUMMARY
+          echo "Frontend ALB: \`$(terraform output -raw frontend_alb_dns_name)\`" >> $GITHUB_STEP_SUMMARY
+          echo "Frontend ECR: \`$(terraform output -raw frontend_ecr_repository_url)\`" >> $GITHUB_STEP_SUMMARY
