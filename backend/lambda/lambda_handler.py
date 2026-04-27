@@ -64,6 +64,34 @@ _load_secrets_from_env()
 _apply_lambda_runtime_defaults()
 _configure_aurora_database_url()
 
+# Load settings and initialize Langfuse before the app. Mangum uses `lifespan="off"`, so
+# FastAPI startup (where we also call `ensure_langfuse_ready`) never runs in Lambda;
+# without this, the Langfuse client and `langfuse.openai` wrapper may not be ready
+# for the first `LlmClient` call, and traces can be lost.
+import logging  # noqa: E402
+
+import app.core.config  # noqa: F401, E402  (loads Settings from env, including secrets JSON)
+
+from app.services.observability.langfuse_tracing import (  # noqa: E402
+  ensure_langfuse_ready,
+)
+
+_lf = logging.getLogger("talentstream.lambda")
+if (os.environ.get("TALENTSTREAM_AWS_LAMBDA") or "").strip() == "1":
+  want_lf = (os.environ.get("LANGFUSE_TRACING_ENABLED") or "true").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+  )
+  lf_ready = ensure_langfuse_ready()
+  if want_lf and not lf_ready:
+    _lf.warning(
+      "langfuse_tracing_expected_but_not_configured",
+      extra={"hint": "Add LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY to app_secrets JSON in Secrets Manager"},
+    )
+  elif lf_ready:
+    _lf.info("langfuse_tracing_ready")
+
 from mangum import Mangum  # noqa: E402  (import after env is prepared)
 
 from app.main import app  # noqa: E402

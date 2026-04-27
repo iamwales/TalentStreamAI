@@ -90,3 +90,13 @@ output "aurora_database_name" {
   description = "Logical database name inside the cluster."
   value       = var.aurora_database_name
 }
+
+output "cloudwatch_dashboard_name" {
+  description = "Name of the CloudWatch observability dashboard for this environment."
+  value       = aws_cloudwatch_dashboard.talentstream.dashboard_name
+}
+
+output "cloudwatch_dashboard_url" {
+  description = "Direct link to the CloudWatch console dashboard (same region as the stack)."
+  value       = "https://${var.aws_region}.console.aws.amazon.com/cloudwatch/home?region=${var.aws_region}#dashboards:name=${urlencode(aws_cloudwatch_dashboard.talentstream.dashboard_name)}"
+}
