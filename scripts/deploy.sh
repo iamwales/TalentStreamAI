@@ -90,15 +90,23 @@ fi
 STATE_BUCKET="${TF_STATE_BUCKET:-${BACKEND_BUCKET:-${PROJECT_NAME}-tfstate-${AWS_ACCOUNT_ID}}}"
 LOCK_TABLE="${TF_LOCK_TABLE:-${BACKEND_LOCK_TABLE:-$(echo "${PROJECT_NAME}-tf-locks" | tr '_' '-')}}"
 
-# Default key = env/<stage>/... + `terraform workspace`.
-# If key is provided via TF_STATE_KEY or backend.hcl, use default workspace only.
+# Default key strategy:
+# 1) TF_STATE_KEY / backend.hcl key (explicit, no workspaces)
+# 2) Auto-detect legacy key "${project}/${env}/terraform.tfstate" if object exists
+# 3) Fallback: env/<stage>/... + terraform workspace
 RESOLVED_STATE_KEY="${TF_STATE_KEY:-${BACKEND_KEY:-}}"
 if [ -n "${RESOLVED_STATE_KEY}" ]; then
   STATE_KEY="${RESOLVED_STATE_KEY}"
   USE_STATE_WORKSPACES=0
 else
-  STATE_KEY="env/${ENVIRONMENT}/terraform.tfstate"
-  USE_STATE_WORKSPACES=1
+  LEGACY_STATE_KEY="${PROJECT_NAME}/${ENVIRONMENT}/terraform.tfstate"
+  if aws s3api head-object --bucket "${STATE_BUCKET}" --key "${LEGACY_STATE_KEY}" >/dev/null 2>&1; then
+    STATE_KEY="${LEGACY_STATE_KEY}"
+    USE_STATE_WORKSPACES=0
+  else
+    STATE_KEY="env/${ENVIRONMENT}/terraform.tfstate"
+    USE_STATE_WORKSPACES=1
+  fi
 fi
 echo "Terraform state backend: bucket=${STATE_BUCKET} key=${STATE_KEY} region=${AWS_REGION} lock_table=${LOCK_TABLE} workspaces=${USE_STATE_WORKSPACES}"
 
