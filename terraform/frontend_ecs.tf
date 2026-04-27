@@ -238,7 +238,9 @@ resource "aws_lb_target_group" "frontend" {
     healthy_threshold   = 2
     unhealthy_threshold = 3
     interval            = 15
-    timeout             = 5
+    # First request to a cold Next.js process can exceed 5s; sub-second failures
+    # here leave the ALB with zero healthy targets → CloudFront 503.
+    timeout = 10
   }
 
   deregistration_delay = 30
@@ -305,7 +307,9 @@ resource "aws_ecs_service" "frontend" {
   # smallest Fargate sizes. Without a grace period ECS marks tasks unhealthy
   # before the server is ready and gets stuck in a kill/restart loop, which
   # the user sees as a permanent 504 from CloudFront.
-  health_check_grace_period_seconds = 60
+  # Match ALB `interval/timeout` + slow cold starts: 60s can be too tight when
+  # the first `/api/health` request is slow.
+  health_check_grace_period_seconds = 120
 
   # If the new task set never becomes healthy (common: image pull failures in
   # private subnets), fail the deployment and roll back instead of leaving the
