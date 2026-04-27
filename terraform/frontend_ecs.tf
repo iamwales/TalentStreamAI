@@ -307,6 +307,14 @@ resource "aws_ecs_service" "frontend" {
   # the user sees as a permanent 504 from CloudFront.
   health_check_grace_period_seconds = 60
 
+  # If the new task set never becomes healthy (common: image pull failures in
+  # private subnets), fail the deployment and roll back instead of leaving the
+  # ALB with zero healthy targets and a silent 503.
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
   enable_execute_command = true
 
   network_configuration {
