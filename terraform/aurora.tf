@@ -74,19 +74,23 @@ locals {
     az => sort([for id, s in data.aws_subnet.by_id : id if s.availability_zone == az && s.map_public_ip_on_launch == false])[0]
     if length([for id, s in data.aws_subnet.by_id : id if s.availability_zone == az && s.map_public_ip_on_launch == false]) > 0
   }
-  # Only AZs that have BOTH a public and a private subnet are valid for
-  # internet-facing ALB + private Fargate in the *same* AZs.
-  paired_availability_zones = sort([
-    for az in keys(local.public_subnets_by_az) : az
-    if contains(keys(local.private_subnets_by_az), az)
-  ])
 
-  # ALB requires >= 2 enabled AZs; Fargate tasks and ALB public subnets must be
-  # in the same AZs, otherwise target registrations show "Unused" forever.
-  alb_availability_zones = slice(local.paired_availability_zones, 0, 2)
-  public_subnet_ids      = [for az in local.alb_availability_zones : local.public_subnets_by_az[az]]
-  ecs_fargate_subnet_ids = [for az in local.alb_availability_zones : local.private_subnets_by_az[az]]
-  nat_subnet_id          = local.public_subnets_by_az[local.alb_availability_zones[0]]
+  public_subnet_azs_sorted = sort(keys(local.public_subnets_by_az))
+  # ALB must span >= 2 AZs. Pick the first two AZs that have a *public* subnet
+  # (typical for default-VPC public subnets for an internet-facing ALB).
+  alb_public_subnet_azs = length(local.public_subnet_azs_sorted) >= 2 ? slice(local.public_subnet_azs_sorted, 0, 2) : local.public_subnet_azs_sorted
+  public_subnet_ids = [
+    for az in local.alb_public_subnet_azs : local.public_subnets_by_az[az]
+  ]
+  # Private Fargate + no public task IP: require a non-public subnet in the same
+  # AZs as the ALB public subnets (otherwise ALB target registrations are "Unused").
+  # Use `try(...)` so Terraform can still plan far enough to surface a clear
+  # precondition error if a required private subnet is missing in an AZ.
+  ecs_fargate_subnet_ids = [
+    for az in local.alb_public_subnet_azs : try(local.private_subnets_by_az[az], "")
+  ]
+  nat_subnet_id = local.public_subnet_ids[0]
+
   all_private_subnet_ids = sort([for s in data.aws_subnet.by_id : s.id if s.map_public_ip_on_launch == false])
   private_subnet_ids     = local.all_private_subnet_ids
 }
@@ -113,8 +117,11 @@ resource "aws_nat_gateway" "main" {
 
   lifecycle {
     precondition {
-      condition     = length(local.paired_availability_zones) >= 2
-      error_message = "This module needs at least two AZs that each contain one public and one private subnet (default VPC). Found: ${join(", ", local.paired_availability_zones)}"
+      condition = (
+        length(local.alb_public_subnet_azs) == 2 &&
+        !contains(local.ecs_fargate_subnet_ids, "")
+      )
+      error_message = "Need at least 2 public subnets in 2 different AZs, and a non-public (private) subnet in each of those same AZs for Fargate. Public AZs: ${join(", ", local.public_subnet_azs_sorted)}. Private AZs: ${join(", ", sort(keys(local.private_subnets_by_az)))}."
     }
   }
 }
