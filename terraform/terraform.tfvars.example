@@ -27,8 +27,12 @@ cors_extra_origins = "http://localhost:3000"
 llm_base_url = "https://openrouter.ai/api/v1"
 llm_model    = "openai/gpt-4.1-mini"
 
+# --- Langfuse (optional but recommended for prod traces) ---
+# Lambda env also sets LANGFUSE_TRACING_ENABLED and LANGFUSE_BASE_URL (see main.tf). Keys must live in app_secrets_json.
+# langfuse_base_url = null  # default cloud.langfuse.com; set for EU/US self-host per Langfuse docs
+
 # --- Secrets (stored in AWS Secrets Manager; also ends up in Terraform state) ---
-# At minimum, include the keys you plan to use (OpenRouter vs OpenAI, Langfuse, etc).
+# Include OPENROUTER_API_KEY (or OpenAI) plus LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY for traces in AWS.
 app_secrets_json = <<-JSON
 {
   "OPENROUTER_API_KEY": "replace-me",

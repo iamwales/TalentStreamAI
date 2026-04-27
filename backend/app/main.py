@@ -1,8 +1,11 @@
 import os
+from typing import Any
 
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 from app.api.router import api_router
 from app.core.config import settings
@@ -87,8 +90,21 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=[settings.request_id_header or "X-Request-Id"],
 )
-# Outermost: request id + structlog context (last added in Starlette).
+# Outermost: request id + structlog context.
 app.add_middleware(RequestContextMiddleware)
+
+# In Lambda, Mangum uses `lifespan="off"` and there is no ASGI shutdown; the Langfuse SDK
+# may buffer events. Flush after every response in AWS so traces reach Langfuse.
+class _LangfuseFlushAfterRequest(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next) -> Any:
+        response = await call_next(request)
+        if (os.environ.get("TALENTSTREAM_AWS_LAMBDA") or "").strip() == "1":
+            flush_langfuse()
+        return response
+
+
+# Outermost middleware (added last) runs this after the full route handler returns.
+app.add_middleware(_LangfuseFlushAfterRequest)
 
 app.include_router(api_router, prefix="/api")
 

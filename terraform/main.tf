@@ -18,6 +18,19 @@ terraform {
   }
 }
 
+# Declared in `main.tf` (not only `variables.tf`) so editor Terraform analysis of this file resolves `var.*` refs.
+# API Gateway HTTP APIs (v2) cap Lambda integration at 30s; this is the integration wait, in ms.
+variable "api_gateway_v2_lambda_timeout_milliseconds" {
+  type        = number
+  description = "HTTP API (v2) Lambda integration timeout. AWS maximum is 30000ms; higher values are rejected by API Gateway."
+  default     = 30000
+
+  validation {
+    condition     = var.api_gateway_v2_lambda_timeout_milliseconds >= 1000 && var.api_gateway_v2_lambda_timeout_milliseconds <= 30000
+    error_message = "api_gateway_v2_lambda_timeout_milliseconds must be between 1000 and 30000 (30s API Gateway hard cap for HTTP APIs)."
+  }
+}
+
 locals {
   name = "${var.project_name}-${var.environment}"
 }
@@ -174,8 +187,9 @@ resource "aws_lambda_function" "api" {
   source_code_hash = filebase64sha256("${path.module}/build/api_lambda.zip")
 
   architectures = ["x86_64"]
-  timeout       = 60
-  memory_size   = 1024
+  # Keep >= API Gateway max integration wait; HTTP API v2 hard-caps at 30s.
+  timeout     = max(60, ceil(var.api_gateway_v2_lambda_timeout_milliseconds / 1000))
+  memory_size = 1024
 
   vpc_config {
     subnet_ids         = local.private_subnet_ids
@@ -197,9 +211,13 @@ resource "aws_lambda_function" "api" {
 
       AGENT_MODE = "llm"
 
-      LLM_BASE_URL        = var.llm_base_url
-      LLM_MODEL           = var.llm_model
-      LLM_TIMEOUT_SECONDS = tostring(var.llm_timeout_seconds)
+      LLM_BASE_URL = var.llm_base_url
+      LLM_MODEL    = var.llm_model
+      # httpx read timeout for outbound LLM calls. Must be <= API Gateway HTTP v2
+      # integration cap (30s) or the caller often sees 504 from API Gateway even if
+      # Lambda timeout is higher. Floor vs `llm_timeout_seconds` to avoid the LLM
+      # client "winning" the race to timeout after API Gateway has already given up.
+      LLM_TIMEOUT_SECONDS = tostring(min(var.llm_timeout_seconds, (var.api_gateway_v2_lambda_timeout_milliseconds / 1000) - 1))
       LLM_MAX_TOKENS      = tostring(var.llm_max_tokens)
       LLM_TEMPERATURE     = tostring(var.llm_temperature)
       OPENROUTER_REFERER  = var.openrouter_referer == null ? "" : var.openrouter_referer
@@ -265,6 +283,9 @@ resource "aws_apigatewayv2_integration" "lambda" {
   api_id           = aws_apigatewayv2_api.http.id
   integration_type = "AWS_PROXY"
   integration_uri  = aws_lambda_function.api.invoke_arn
+  # HTTP API (v2) max is 30s. Without this, multi-step LLM routes can look like
+  # "random" 504s if the effective integration wait is left below the default.
+  timeout_milliseconds = var.api_gateway_v2_lambda_timeout_milliseconds
 }
 
 resource "aws_apigatewayv2_route" "api_any" {

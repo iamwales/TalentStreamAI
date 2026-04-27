@@ -132,6 +132,25 @@ class Settings(BaseSettings):
             return oai
         return None
 
+    @field_validator(
+        "log_json",
+        "enable_prometheus",
+        "langfuse_tracing_enabled",
+        "llm_response_json_object",
+        "openai_chat_request_metadata",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_terraform_style_bool(cls, value: object) -> object:
+        """AWS Lambda / Terraform set booleans as strings (``\"true\"`` / ``\"false\"``)."""
+        if isinstance(value, str):
+            s = value.strip().lower()
+            if s in ("true", "1", "yes", "on"):
+                return True
+            if s in ("false", "0", "no", "off", ""):
+                return False
+        return value
+
     @field_validator("auth_mode", "agent_mode", "upload_storage", mode="before")
     @classmethod
     def _normalize_lower_modes(cls, value: str | None) -> str | None:

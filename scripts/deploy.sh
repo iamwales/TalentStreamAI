@@ -339,8 +339,9 @@ fi
 
 API_URL=$(terraform output -raw api_gateway_url)
 CUSTOM_URL=""; CUSTOM_URL=$(terraform output -raw cloudfront_url 2>/dev/null) || true
+CW_DASH_URL=""; CW_DASH_URL=$(terraform output -raw cloudwatch_dashboard_url 2>/dev/null) || true
 
 # --- 3) CloudFront cache invalidation ---
 CF_ID=$(cd "${ROOT}/terraform" && terraform output -raw cloudfront_distribution_id)
 aws cloudfront create-invalidation --distribution-id "$CF_ID" --paths "/*" >/dev/null
-echo "Done. CloudFront: $CUSTOM_URL  API: $API_URL  FrontendImage: $FRONTEND_IMAGE_URI"
+echo "Done. CloudFront: $CUSTOM_URL  API: $API_URL  CloudWatch: $CW_DASH_URL  FrontendImage: $FRONTEND_IMAGE_URI"
