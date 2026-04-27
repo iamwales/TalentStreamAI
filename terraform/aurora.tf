@@ -52,8 +52,14 @@ data "aws_subnets" "aurora" {
 # Lambda ENIs do not get public IPs. Use private subnets with a NAT route
 # so auth/LLM calls to public services (Clerk/OpenRouter/etc.) can egress.
 locals {
-  nat_subnet_id      = data.aws_subnets.aurora[0].ids[0]
-  private_subnet_ids = slice(data.aws_subnets.aurora[0].ids, 1, length(data.aws_subnets.aurora[0].ids))
+  all_subnet_ids    = sort(data.aws_subnets.aurora[0].ids)
+  public_subnet_ids = slice(local.all_subnet_ids, 0, 2)
+  nat_subnet_id     = local.public_subnet_ids[0]
+  private_subnet_ids = slice(
+    local.all_subnet_ids,
+    2,
+    length(local.all_subnet_ids)
+  )
 }
 
 data "aws_internet_gateway" "default" {

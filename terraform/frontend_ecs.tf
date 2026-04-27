@@ -138,7 +138,7 @@ resource "aws_lb" "frontend" {
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.frontend_alb.id]
-  subnets            = data.aws_subnets.aurora[0].ids
+  subnets            = slice(sort(data.aws_subnets.aurora[0].ids), 0, 2)
 }
 
 resource "aws_lb_target_group" "frontend" {
