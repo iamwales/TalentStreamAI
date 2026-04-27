@@ -33,8 +33,41 @@ variable "frontend_desired_count" {
   default     = 1
 }
 
+variable "frontend_runtime_env" {
+  type        = map(string)
+  description = "Plain (non-secret) runtime env vars injected into the frontend ECS container. Use this for things like NEXT_PUBLIC_API_URL (typically empty for same-origin)."
+  default = {
+    NEXT_PUBLIC_API_URL = ""
+  }
+}
+
+variable "frontend_runtime_secret_keys" {
+  type        = list(string)
+  description = "JSON keys inside `aws_secretsmanager_secret.app` to inject as runtime env vars into the frontend container. The Clerk middleware needs CLERK_SECRET_KEY (and reads NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY at runtime), so both must exist as keys in app_secrets_json."
+  default     = ["CLERK_SECRET_KEY", "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"]
+}
+
 locals {
   frontend_ecr_repo_name = "${var.project_name}-${var.environment}-frontend"
+
+  frontend_static_env = [
+    { name = "NODE_ENV", value = "production" },
+    { name = "PORT", value = tostring(var.frontend_container_port) },
+    { name = "HOSTNAME", value = "0.0.0.0" },
+  ]
+
+  frontend_extra_env = [
+    for k, v in var.frontend_runtime_env : { name = k, value = v }
+  ]
+
+  frontend_environment = concat(local.frontend_static_env, local.frontend_extra_env)
+
+  frontend_secrets = [
+    for key in var.frontend_runtime_secret_keys : {
+      name      = key
+      valueFrom = "${aws_secretsmanager_secret.app.arn}:${key}::"
+    }
+  ]
 }
 
 resource "aws_ecr_repository" "frontend" {
@@ -76,6 +109,27 @@ resource "aws_iam_role" "frontend_ecs_execution" {
 resource "aws_iam_role_policy_attachment" "frontend_ecs_execution" {
   role       = aws_iam_role.frontend_ecs_execution.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+# Allow the ECS agent (acting as the *execution* role, not the task role) to
+# pull individual JSON keys out of `aws_secretsmanager_secret.app` at task
+# launch and inject them into the container as env vars. Without this the
+# `secrets = [...]` block on the task definition fails with AccessDenied
+# during task start and the service never reaches a healthy state.
+resource "aws_iam_role_policy" "frontend_ecs_execution_secrets" {
+  name = "${local.name}-frontend-ecs-exec-secrets"
+  role = aws_iam_role.frontend_ecs_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = [aws_secretsmanager_secret.app.arn]
+      },
+    ]
+  })
 }
 
 resource "aws_iam_role" "frontend_ecs_task" {
@@ -148,14 +202,20 @@ resource "aws_lb_target_group" "frontend" {
   target_type = "ip"
   vpc_id      = data.aws_vpc.default[0].id
 
+  # Use a dedicated, auth-free Next.js route (`frontend/src/app/api/health/route.ts`)
+  # so the ALB never depends on the landing page or Clerk middleware to pass a
+  # health check. The Next.js `middleware.ts` matcher excludes `/api/*`, so this
+  # path is intentionally outside Clerk's scope.
   health_check {
-    path                = "/"
-    matcher             = "200-399"
+    path                = "/api/health"
+    matcher             = "200"
     healthy_threshold   = 2
     unhealthy_threshold = 3
-    interval            = 30
-    timeout             = 10
+    interval            = 15
+    timeout             = 5
   }
+
+  deregistration_delay = 30
 }
 
 resource "aws_lb_listener" "frontend_http" {
@@ -194,6 +254,8 @@ resource "aws_ecs_task_definition" "frontend" {
           protocol      = "tcp"
         }
       ]
+      environment = local.frontend_environment
+      secrets     = local.frontend_secrets
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -212,6 +274,14 @@ resource "aws_ecs_service" "frontend" {
   task_definition = aws_ecs_task_definition.frontend.arn
   desired_count   = var.frontend_desired_count
   launch_type     = "FARGATE"
+
+  # Next.js cold-starts (npm run start + first SSR) can take 20-30s on the
+  # smallest Fargate sizes. Without a grace period ECS marks tasks unhealthy
+  # before the server is ready and gets stuck in a kill/restart loop, which
+  # the user sees as a permanent 504 from CloudFront.
+  health_check_grace_period_seconds = 60
+
+  enable_execute_command = true
 
   network_configuration {
     subnets          = local.private_subnet_ids
