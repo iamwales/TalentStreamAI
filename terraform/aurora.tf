@@ -49,17 +49,46 @@ data "aws_subnets" "aurora" {
   }
 }
 
+# Per-subnet details for the default VPC. We *cannot* infer public vs private
+# from sort order: Fargate tasks in subnets in AZs where the internet-facing
+# ALB has no listener subnet show up in the target group as "Unused" (and the
+# ALB returns 503 for all traffic).
+data "aws_subnet" "by_id" {
+  for_each = toset(data.aws_subnets.aurora[0].ids)
+  id       = each.value
+}
+
 # Lambda ENIs do not get public IPs. Use private subnets with a NAT route
 # so auth/LLM calls to public services (Clerk/OpenRouter/etc.) can egress.
 locals {
-  all_subnet_ids    = sort(data.aws_subnets.aurora[0].ids)
-  public_subnet_ids = slice(local.all_subnet_ids, 0, 2)
-  nat_subnet_id     = local.public_subnet_ids[0]
-  private_subnet_ids = slice(
-    local.all_subnet_ids,
-    2,
-    length(local.all_subnet_ids)
-  )
+  # Map AZ -> one subnet id (deterministic) for public / private, based on
+  # `map_public_ip_on_launch` from the default VPC. If multiple subnets exist
+  # in one AZ, pick the lexicographically smallest subnet id.
+  public_subnets_by_az = {
+    for az in distinct([for s in data.aws_subnet.by_id : s.availability_zone]) :
+    az => sort([for id, s in data.aws_subnet.by_id : id if s.availability_zone == az && s.map_public_ip_on_launch == true])[0]
+    if length([for id, s in data.aws_subnet.by_id : id if s.availability_zone == az && s.map_public_ip_on_launch == true]) > 0
+  }
+  private_subnets_by_az = {
+    for az in distinct([for s in data.aws_subnet.by_id : s.availability_zone]) :
+    az => sort([for id, s in data.aws_subnet.by_id : id if s.availability_zone == az && s.map_public_ip_on_launch == false])[0]
+    if length([for id, s in data.aws_subnet.by_id : id if s.availability_zone == az && s.map_public_ip_on_launch == false]) > 0
+  }
+  # Only AZs that have BOTH a public and a private subnet are valid for
+  # internet-facing ALB + private Fargate in the *same* AZs.
+  paired_availability_zones = sort([
+    for az in keys(local.public_subnets_by_az) : az
+    if contains(keys(local.private_subnets_by_az), az)
+  ])
+
+  # ALB requires >= 2 enabled AZs; Fargate tasks and ALB public subnets must be
+  # in the same AZs, otherwise target registrations show "Unused" forever.
+  alb_availability_zones = slice(local.paired_availability_zones, 0, 2)
+  public_subnet_ids      = [for az in local.alb_availability_zones : local.public_subnets_by_az[az]]
+  ecs_fargate_subnet_ids = [for az in local.alb_availability_zones : local.private_subnets_by_az[az]]
+  nat_subnet_id          = local.public_subnets_by_az[local.alb_availability_zones[0]]
+  all_private_subnet_ids = sort([for s in data.aws_subnet.by_id : s.id if s.map_public_ip_on_launch == false])
+  private_subnet_ids     = local.all_private_subnet_ids
 }
 
 data "aws_internet_gateway" "default" {
@@ -80,6 +109,13 @@ resource "aws_nat_gateway" "main" {
   tags = {
     Project     = var.project_name
     Environment = var.environment
+  }
+
+  lifecycle {
+    precondition {
+      condition     = length(local.paired_availability_zones) >= 2
+      error_message = "This module needs at least two AZs that each contain one public and one private subnet (default VPC). Found: ${join(", ", local.paired_availability_zones)}"
+    }
   }
 }
 
