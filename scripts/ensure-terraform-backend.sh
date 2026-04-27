@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
 # Idempotent: ensure S3 bucket + DynamoDB lock table exist for Terraform remote state.
 # Naming matches terraform/terraform_state.tf and scripts/deploy.sh defaults.
-# Usage: ./scripts/ensure-terraform-backend.sh <project_name> <aws_region>
+# Usage: ./scripts/ensure-terraform-backend.sh <project_name> <aws_region> [state_bucket] [lock_table]
 set -euo pipefail
 
 PROJECT_NAME="${1:-}"
 REGION="${2:-}"
+STATE_BUCKET_ARG="${3:-}"
+LOCK_TABLE_ARG="${4:-}"
 if [[ -z "$PROJECT_NAME" || -z "$REGION" ]]; then
-  echo "Usage: $0 <project_name> <aws_region>" >&2
+  echo "Usage: $0 <project_name> <aws_region> [state_bucket] [lock_table]" >&2
   exit 1
 fi
 
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-BUCKET="${PROJECT_NAME}-tfstate-${ACCOUNT_ID}"
-LOCK_TABLE=$(echo "${PROJECT_NAME}-tf-locks" | tr '_' '-')
+BUCKET="${STATE_BUCKET_ARG:-${PROJECT_NAME}-tfstate-${ACCOUNT_ID}}"
+LOCK_TABLE="${LOCK_TABLE_ARG:-$(echo "${PROJECT_NAME}-tf-locks" | tr '_' '-')}"
 
 if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
   echo "State bucket already exists: $BUCKET"

@@ -68,25 +68,44 @@ cd "${ROOT}/terraform"
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 # Region for the state bucket (must match where the bucket lives; avoid S3 301/redirect issues).
 AWS_REGION="${TF_STATE_REGION:-${DEFAULT_AWS_REGION:-us-east-1}}"
-# Default name matches terraform/terraform_state.tf: "${project_name}-tfstate-${account_id}"
-# Override in CI (e.g. GitHub) if you created the bucket with a different name: TF_STATE_BUCKET, TF_LOCK_TABLE.
-STATE_BUCKET="${TF_STATE_BUCKET:-${PROJECT_NAME}-tfstate-${AWS_ACCOUNT_ID}}"
-LOCK_TABLE="${TF_LOCK_TABLE:-$(echo "${PROJECT_NAME}-tf-locks" | tr '_' '-')}"
-# Default key = env/<stage>/... + `terraform workspace` (see below). If you use a single object key
-# per stage (e.g. talentstreamai/dev/terraform.tfstate) and the default workspace, set TF_STATE_KEY
-# and we skip creating/selecting a named workspace.
-if [ -n "${TF_STATE_KEY:-}" ]; then
-  STATE_KEY="${TF_STATE_KEY}"
+BACKEND_HCL="${ROOT}/terraform/backend.hcl"
+BACKEND_BUCKET=""
+BACKEND_KEY=""
+BACKEND_REGION=""
+BACKEND_LOCK_TABLE=""
+if [ -f "${BACKEND_HCL}" ]; then
+  BACKEND_BUCKET=$(awk -F'"' '/^[[:space:]]*bucket[[:space:]]*=/{print $2; exit}' "${BACKEND_HCL}" || true)
+  BACKEND_KEY=$(awk -F'"' '/^[[:space:]]*key[[:space:]]*=/{print $2; exit}' "${BACKEND_HCL}" || true)
+  BACKEND_REGION=$(awk -F'"' '/^[[:space:]]*region[[:space:]]*=/{print $2; exit}' "${BACKEND_HCL}" || true)
+  BACKEND_LOCK_TABLE=$(awk -F'"' '/^[[:space:]]*dynamodb_table[[:space:]]*=/{print $2; exit}' "${BACKEND_HCL}" || true)
+fi
+
+# Resolution order:
+# 1) TF_STATE_* env vars (recommended for CI secrets)
+# 2) terraform/backend.hcl values (keeps CI/local aligned without extra secrets)
+# 3) built-in defaults (project convention)
+if [ -n "${BACKEND_REGION}" ] && [ -z "${TF_STATE_REGION:-}" ]; then
+  AWS_REGION="${BACKEND_REGION}"
+fi
+STATE_BUCKET="${TF_STATE_BUCKET:-${BACKEND_BUCKET:-${PROJECT_NAME}-tfstate-${AWS_ACCOUNT_ID}}}"
+LOCK_TABLE="${TF_LOCK_TABLE:-${BACKEND_LOCK_TABLE:-$(echo "${PROJECT_NAME}-tf-locks" | tr '_' '-')}}"
+
+# Default key = env/<stage>/... + `terraform workspace`.
+# If key is provided via TF_STATE_KEY or backend.hcl, use default workspace only.
+RESOLVED_STATE_KEY="${TF_STATE_KEY:-${BACKEND_KEY:-}}"
+if [ -n "${RESOLVED_STATE_KEY}" ]; then
+  STATE_KEY="${RESOLVED_STATE_KEY}"
   USE_STATE_WORKSPACES=0
 else
   STATE_KEY="env/${ENVIRONMENT}/terraform.tfstate"
   USE_STATE_WORKSPACES=1
 fi
+echo "Terraform state backend: bucket=${STATE_BUCKET} key=${STATE_KEY} region=${AWS_REGION} lock_table=${LOCK_TABLE} workspaces=${USE_STATE_WORKSPACES}"
 
 # Idempotent S3 + DynamoDB for remote state (CI sets TF_VAR_manage_terraform_state_backend=false).
 # SKIP_ENSURE_TERRAFORM_BACKEND=1 if Terraform still manages the state bucket in your root state.
 if [ "${SKIP_ENSURE_TERRAFORM_BACKEND:-}" != "1" ]; then
-  bash "${ROOT}/scripts/ensure-terraform-backend.sh" "${PROJECT_NAME}" "${AWS_REGION}"
+  bash "${ROOT}/scripts/ensure-terraform-backend.sh" "${PROJECT_NAME}" "${AWS_REGION}" "${STATE_BUCKET}" "${LOCK_TABLE}"
 fi
 
 SECRET_ARGS=()
