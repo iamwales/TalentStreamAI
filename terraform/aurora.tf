@@ -109,6 +109,50 @@ resource "aws_security_group" "api_lambda" {
   }
 }
 
+resource "aws_security_group" "secretsmanager_endpoint" {
+  count = 1
+
+  name        = "${local.name}-secretsmanager-endpoint"
+  description = "Secrets Manager VPC endpoint access for ${local.name}"
+  vpc_id      = data.aws_vpc.default[0].id
+
+  ingress {
+    description     = "HTTPS from API Lambda"
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [aws_security_group.api_lambda[0].id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
+
+resource "aws_vpc_endpoint" "secretsmanager" {
+  count = 1
+
+  vpc_id              = data.aws_vpc.default[0].id
+  service_name        = "com.amazonaws.${var.aws_region}.secretsmanager"
+  vpc_endpoint_type   = "Interface"
+  private_dns_enabled = true
+  subnet_ids          = data.aws_subnets.aurora[0].ids
+  security_group_ids  = [aws_security_group.secretsmanager_endpoint[0].id]
+
+  tags = {
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
+
 resource "aws_rds_cluster" "aurora" {
   count = 1
 
