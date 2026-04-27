@@ -182,7 +182,7 @@ resource "aws_lambda_function" "api" {
   memory_size   = 1024
 
   vpc_config {
-    subnet_ids         = data.aws_subnets.aurora[0].ids
+    subnet_ids         = local.private_subnet_ids
     security_group_ids = [aws_security_group.api_lambda[0].id]
   }
 
