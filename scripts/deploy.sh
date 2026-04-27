@@ -153,7 +153,12 @@ import_if_missing() {
     return 0
   fi
   echo "Importing existing resource into state: ${address} (${import_id})"
-  terraform import "$address" "$import_id" >/dev/null
+  IMPORT_CMD=(terraform import -var="project_name=${PROJECT_NAME}" -var="environment=${ENVIRONMENT}")
+  if [ "${#SECRET_ARGS[@]}" -gt 0 ]; then
+    IMPORT_CMD+=("${SECRET_ARGS[@]}")
+  fi
+  IMPORT_CMD+=("$address" "$import_id")
+  "${IMPORT_CMD[@]}" >/dev/null
 }
 
 maybe_import_existing_stack_resources() {
