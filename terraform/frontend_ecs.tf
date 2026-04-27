@@ -321,9 +321,13 @@ resource "aws_ecs_service" "frontend" {
   network_configuration {
     # Must be private subnets in the *same AZs* as `aws_lb.frontend.subnets`, or
     # targets register as "Unused" and the ALB serves 503.
-    subnets          = local.ecs_fargate_subnet_ids
-    security_groups  = [aws_security_group.frontend_ecs.id]
-    assign_public_ip = false
+    subnets         = local.ecs_fargate_subnet_ids
+    security_groups = [aws_security_group.frontend_ecs.id]
+    # Default VPC: Fargate subnets are often the same "public" subnets as the
+    # internet-facing ALB; in that case a public task ENI is required to reach
+    # ECR/S3/Internet. When subnets are true-private (mapPublicIpOnLaunch=false),
+    # this becomes false and egress goes via NAT.
+    assign_public_ip = local.frontend_fargate_assign_public_ip
   }
 
   load_balancer {

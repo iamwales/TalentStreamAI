@@ -61,38 +61,44 @@ data "aws_subnet" "by_id" {
 # Lambda ENIs do not get public IPs. Use private subnets with a NAT route
 # so auth/LLM calls to public services (Clerk/OpenRouter/etc.) can egress.
 locals {
-  # Map AZ -> one subnet id (deterministic) for public / private, based on
-  # `map_public_ip_on_launch` from the default VPC. If multiple subnets exist
-  # in one AZ, pick the lexicographically smallest subnet id.
-  public_subnets_by_az = {
-    for az in distinct([for s in data.aws_subnet.by_id : s.availability_zone]) :
-    az => sort([for id, s in data.aws_subnet.by_id : id if s.availability_zone == az && s.map_public_ip_on_launch == true])[0]
-    if length([for id, s in data.aws_subnet.by_id : id if s.availability_zone == az && s.map_public_ip_on_launch == true]) > 0
-  }
-  private_subnets_by_az = {
-    for az in distinct([for s in data.aws_subnet.by_id : s.availability_zone]) :
-    az => sort([for id, s in data.aws_subnet.by_id : id if s.availability_zone == az && s.map_public_ip_on_launch == false])[0]
-    if length([for id, s in data.aws_subnet.by_id : id if s.availability_zone == az && s.map_public_ip_on_launch == false]) > 0
-  }
+  all_sorted_subnet_ids = sort(data.aws_subnets.aurora[0].ids)
 
-  public_subnet_azs_sorted = sort(keys(local.public_subnets_by_az))
-  # ALB must span >= 2 AZs. Pick the first two AZs that have a *public* subnet
-  # (typical for default-VPC public subnets for an internet-facing ALB).
-  alb_public_subnet_azs = length(local.public_subnet_azs_sorted) >= 2 ? slice(local.public_subnet_azs_sorted, 0, 2) : local.public_subnet_azs_sorted
-  public_subnet_ids = [
-    for az in local.alb_public_subnet_azs : local.public_subnets_by_az[az]
-  ]
-  # Private Fargate + no public task IP: require a non-public subnet in the same
-  # AZs as the ALB public subnets (otherwise ALB target registrations are "Unused").
-  # Use `try(...)` so Terraform can still plan far enough to surface a clear
-  # precondition error if a required private subnet is missing in an AZ.
-  ecs_fargate_subnet_ids = [
-    for az in local.alb_public_subnet_azs : try(local.private_subnets_by_az[az], "")
-  ]
-  nat_subnet_id = local.public_subnet_ids[0]
+  # Internet-facing ALB subnets must be subnets with a route to the Internet
+  # Gateway. In a default VPC these are the subnets with MapPublicIpOnLaunch=true
+  # (and it's common that *all* default subnets are "public" by this flag).
+  public_candidate_subnet_ids = sort([for id in local.all_sorted_subnet_ids : id if data.aws_subnet.by_id[id].map_public_ip_on_launch == true])
 
-  all_private_subnet_ids = sort([for s in data.aws_subnet.by_id : s.id if s.map_public_ip_on_launch == false])
-  private_subnet_ids     = local.all_private_subnet_ids
+  # Pick TWO public subnets in *different* AZs for the internet-facing ALB.
+  # This is required; an ALB cannot be created with two subnets in the same AZ.
+  alb_1_subnet_id = length(local.public_candidate_subnet_ids) > 0 ? local.public_candidate_subnet_ids[0] : null
+  alb_1_az        = local.alb_1_subnet_id == null ? null : data.aws_subnet.by_id[local.alb_1_subnet_id].availability_zone
+  alb_2_candidates = local.alb_1_az == null ? [] : [
+    for id in local.public_candidate_subnet_ids : id
+    if data.aws_subnet.by_id[id].availability_zone != local.alb_1_az
+  ]
+  alb_2_subnet_id = length(local.alb_2_candidates) > 0 ? local.alb_2_candidates[0] : null
+  alb_subnet_ids  = compact([local.alb_1_subnet_id, local.alb_2_subnet_id])
+
+  # "Private" in this module means: not one of the ALB subnets, but still gets the
+  # NAT private route table association. This matches how default-VPC + NAT stacks
+  # are usually cut over without needing map_public_ip_on_launch=false anywhere.
+  non_alb_subnet_ids = sort([for id in local.all_sorted_subnet_ids : id if !contains(local.alb_subnet_ids, id)])
+  private_subnet_ids = local.non_alb_subnet_ids
+
+  # For Fargate, run tasks in the *same two subnets/AZs* as the ALB so targets
+  # are never "Unused" due to AZ enablement skew. In default VPCs these subnets
+  # are typically public, so Fargate needs assign_public_ip=true (set in
+  # `frontend_ecs.tf` via `local.frontend_fargate_assign_public_ip`).
+  ecs_fargate_subnet_ids = local.alb_subnet_ids
+  # True iff every Fargate subnet is a public (mapPublicIpOnLaunch) subnet.
+  frontend_fargate_assign_public_ip = (
+    length(local.ecs_fargate_subnet_ids) > 0 &&
+    alltrue([for id in local.ecs_fargate_subnet_ids : data.aws_subnet.by_id[id].map_public_ip_on_launch])
+  )
+
+  # Back-compat name used by the ALB resource: these are the ALB subnets.
+  public_subnet_ids = local.alb_subnet_ids
+  nat_subnet_id     = local.alb_1_subnet_id
 }
 
 data "aws_internet_gateway" "default" {
@@ -118,10 +124,14 @@ resource "aws_nat_gateway" "main" {
   lifecycle {
     precondition {
       condition = (
-        length(local.alb_public_subnet_azs) == 2 &&
-        !contains(local.ecs_fargate_subnet_ids, "")
+        local.alb_1_subnet_id != null &&
+        length(local.public_candidate_subnet_ids) >= 2 &&
+        local.alb_2_subnet_id != null &&
+        length(local.alb_subnet_ids) == 2 &&
+        data.aws_subnet.by_id[local.alb_subnet_ids[0]].availability_zone != data.aws_subnet.by_id[local.alb_subnet_ids[1]].availability_zone &&
+        length(local.non_alb_subnet_ids) > 0
       )
-      error_message = "Need at least 2 public subnets in 2 different AZs, and a non-public (private) subnet in each of those same AZs for Fargate. Public AZs: ${join(", ", local.public_subnet_azs_sorted)}. Private AZs: ${join(", ", sort(keys(local.private_subnets_by_az)))}."
+      error_message = "VPC subnet layout is not compatible with this module: need >=2 public subnets in different AZs for the internet-facing ALB, plus at least 1 additional subnet to attach the private route table to (for NAT). Found public candidates=${length(local.public_candidate_subnet_ids)} non-alb=${length(local.non_alb_subnet_ids)}."
     }
   }
 }
