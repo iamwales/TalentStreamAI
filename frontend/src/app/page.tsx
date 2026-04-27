@@ -7,11 +7,13 @@ import { LogoBar } from "@/components/landing/LogoBar";
 import { Navbar } from "@/components/landing/Navbar";
 import { Outputs } from "@/components/landing/Outputs";
 import { Pricing } from "@/components/landing/Pricing";
+import { RouteFallbackRedirect } from "@/components/route-fallback-redirect";
 import { Stats } from "@/components/landing/Stats";
 
 export default function LandingPage() {
   return (
     <main className="min-h-screen bg-[#FAFAF8]">
+      <RouteFallbackRedirect />
       <Navbar />
       <Hero />
       <LogoBar />

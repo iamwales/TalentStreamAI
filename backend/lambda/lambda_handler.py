@@ -67,7 +67,13 @@ _configure_aurora_database_url()
 from mangum import Mangum  # noqa: E402  (import after env is prepared)
 
 from app.main import app  # noqa: E402
+from app.core.db import init_db  # noqa: E402
 
 
-handler: Any = Mangum(app, lifespan="on")
+# Ensure schema exists once during Lambda cold start without paying FastAPI lifespan
+# startup/shutdown overhead on every request.
+init_db()
+
+
+handler: Any = Mangum(app, lifespan="off")
 

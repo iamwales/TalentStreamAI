@@ -17,9 +17,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useApplication, useResume } from "@/lib/hooks/use-api";
 
-export default function ApplicationDetailClient() {
+export default function ApplicationDetailClient({
+  applicationId,
+}: {
+  applicationId?: string;
+}) {
   const params = useParams<{ id: string }>();
-  const id = params?.id;
+  const id = applicationId ?? params?.id;
 
   const { data: application, isLoading } = useApplication(id);
   const { data: resume } = useResume(application?.resumeId);

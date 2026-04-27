@@ -106,7 +106,7 @@ export default function DashboardPage() {
             recent.map((app) => (
               <Link
                 key={app.id}
-                href={`/applications/${app.id}`}
+                href={`/applications?applicationId=${app.id}`}
                 className="flex items-start justify-between gap-4 rounded-lg border bg-card p-4 transition-colors hover:bg-accent/40"
               >
                 <div className="space-y-1">
