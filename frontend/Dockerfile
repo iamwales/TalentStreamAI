@@ -27,4 +27,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 
 EXPOSE 3000
-CMD ["npm", "run", "start", "--", "-p", "3000", "-H", "0.0.0.0"]
+# Run Next.js production server directly. PORT and HOSTNAME are picked up from
+# the ENV declarations above. Going through `npm run start` would add an extra
+# process layer and complicate signal handling for ECS task stop/restart.
+CMD ["node_modules/.bin/next", "start"]
