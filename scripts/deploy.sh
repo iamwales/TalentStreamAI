@@ -315,7 +315,27 @@ echo "Pushed frontend image: ${FRONTEND_IMAGE_URI}"
 echo "Applying Terraform…"
 APPLY=(terraform apply -auto-approve -var="project_name=${PROJECT_NAME}" -var="environment=${ENVIRONMENT}" -var="frontend_image_tag=${FRONTEND_IMAGE_TAG}" -lock-timeout=5m)
 if [ "${#SECRET_ARGS[@]}" -gt 0 ]; then APPLY+=("${SECRET_ARGS[@]}"); fi
-"${APPLY[@]}"
+APPLY_LOG="$(mktemp)"
+set +e
+"${APPLY[@]}" 2>&1 | tee "${APPLY_LOG}"
+APPLY_EXIT=$?
+set -e
+if [ "${APPLY_EXIT}" -ne 0 ]; then
+  if awk 'index($0, "CloudFrontOriginAccessIdentityInUse") > 0 { found=1 } END { exit(found ? 0 : 1) }' "${APPLY_LOG}"; then
+    echo "Detected CloudFront OAI migration conflict. Applying distribution update first, waiting for deploy, then retrying full apply..."
+    TARGET_APPLY=(terraform apply -auto-approve -target=aws_cloudfront_distribution.cdn -var="project_name=${PROJECT_NAME}" -var="environment=${ENVIRONMENT}" -var="frontend_image_tag=${FRONTEND_IMAGE_TAG}" -lock-timeout=5m)
+    if [ "${#SECRET_ARGS[@]}" -gt 0 ]; then TARGET_APPLY+=("${SECRET_ARGS[@]}"); fi
+    "${TARGET_APPLY[@]}"
+    CF_DIST_ID="$(terraform state show aws_cloudfront_distribution.cdn 2>/dev/null | awk -F' = ' '/^id = /{print $2; exit}')"
+    if [ -n "${CF_DIST_ID}" ]; then
+      echo "Waiting for CloudFront distribution ${CF_DIST_ID} to reach Deployed..."
+      aws cloudfront wait distribution-deployed --id "${CF_DIST_ID}" >/dev/null
+    fi
+    "${APPLY[@]}"
+  else
+    exit "${APPLY_EXIT}"
+  fi
+fi
 
 API_URL=$(terraform output -raw api_gateway_url)
 CUSTOM_URL=""; CUSTOM_URL=$(terraform output -raw cloudfront_url 2>/dev/null) || true
