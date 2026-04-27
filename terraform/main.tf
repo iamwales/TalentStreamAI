@@ -160,13 +160,21 @@ resource "aws_iam_role_policy" "api_lambda_app" {
   })
 }
 
+resource "aws_s3_object" "api_lambda_package" {
+  bucket = aws_s3_bucket.uploads.id
+  key    = "${local.name}/lambda/api_lambda.zip"
+  source = "${path.module}/build/api_lambda.zip"
+  etag   = filemd5("${path.module}/build/api_lambda.zip")
+}
+
 resource "aws_lambda_function" "api" {
   function_name = "${local.name}-api"
   role          = aws_iam_role.api_lambda_role.arn
   runtime       = "python3.12"
   handler       = "lambda_handler.handler"
 
-  filename         = "${path.module}/build/api_lambda.zip"
+  s3_bucket        = aws_s3_object.api_lambda_package.bucket
+  s3_key           = aws_s3_object.api_lambda_package.key
   source_code_hash = filebase64sha256("${path.module}/build/api_lambda.zip")
 
   architectures = ["x86_64"]
