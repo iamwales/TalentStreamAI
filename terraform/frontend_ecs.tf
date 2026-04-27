@@ -218,7 +218,8 @@ resource "aws_lb" "frontend" {
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.frontend_alb.id]
-  subnets            = slice(sort(data.aws_subnets.aurora[0].ids), 0, 2)
+  # Must match the AZs where Fargate tasks run; see `local.public_subnet_ids` in `aurora.tf`.
+  subnets = local.public_subnet_ids
 }
 
 resource "aws_lb_target_group" "frontend" {
@@ -303,12 +304,8 @@ resource "aws_ecs_service" "frontend" {
   desired_count   = var.frontend_desired_count
   launch_type     = "FARGATE"
 
-  # Next.js cold-starts (npm run start + first SSR) can take 20-30s on the
-  # smallest Fargate sizes. Without a grace period ECS marks tasks unhealthy
-  # before the server is ready and gets stuck in a kill/restart loop, which
-  # the user sees as a permanent 504 from CloudFront.
-  # Match ALB `interval/timeout` + slow cold starts: 60s can be too tight when
-  # the first `/api/health` request is slow.
+  # Give the task time to pass the ALB health check after it starts (Next.js
+  # cold start + first `/api/health` can be slow on small Fargate sizes).
   health_check_grace_period_seconds = 120
 
   # If the new task set never becomes healthy (common: image pull failures in
@@ -322,7 +319,9 @@ resource "aws_ecs_service" "frontend" {
   enable_execute_command = true
 
   network_configuration {
-    subnets          = local.private_subnet_ids
+    # Must be private subnets in the *same AZs* as `aws_lb.frontend.subnets`, or
+    # targets register as "Unused" and the ALB serves 503.
+    subnets          = local.ecs_fargate_subnet_ids
     security_groups  = [aws_security_group.frontend_ecs.id]
     assign_public_ip = false
   }
