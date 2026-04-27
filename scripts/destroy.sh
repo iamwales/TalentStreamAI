@@ -19,9 +19,38 @@ if [[ ! "$ENVIRONMENT" =~ ^(dev|staging|prod)$ ]]; then
 fi
 
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-AWS_REGION=${DEFAULT_AWS_REGION:-us-east-1}
-STATE_BUCKET="${PROJECT_NAME}-tfstate-${AWS_ACCOUNT_ID}"
-LOCK_TABLE=$(echo "${PROJECT_NAME}-tf-locks" | tr '_' '-')
+AWS_REGION="${TF_STATE_REGION:-${DEFAULT_AWS_REGION:-us-east-1}}"
+BACKEND_HCL="${ROOT}/terraform/backend.hcl"
+BACKEND_BUCKET=""
+BACKEND_KEY=""
+BACKEND_REGION=""
+BACKEND_LOCK_TABLE=""
+if [ -f "${BACKEND_HCL}" ]; then
+  BACKEND_BUCKET=$(awk -F'"' '/^[[:space:]]*bucket[[:space:]]*=/{print $2; exit}' "${BACKEND_HCL}" || true)
+  BACKEND_KEY=$(awk -F'"' '/^[[:space:]]*key[[:space:]]*=/{print $2; exit}' "${BACKEND_HCL}" || true)
+  BACKEND_REGION=$(awk -F'"' '/^[[:space:]]*region[[:space:]]*=/{print $2; exit}' "${BACKEND_HCL}" || true)
+  BACKEND_LOCK_TABLE=$(awk -F'"' '/^[[:space:]]*dynamodb_table[[:space:]]*=/{print $2; exit}' "${BACKEND_HCL}" || true)
+fi
+if [ -n "${BACKEND_REGION}" ] && [ -z "${TF_STATE_REGION:-}" ]; then
+  AWS_REGION="${BACKEND_REGION}"
+fi
+STATE_BUCKET="${TF_STATE_BUCKET:-${BACKEND_BUCKET:-${PROJECT_NAME}-tfstate-${AWS_ACCOUNT_ID}}}"
+LOCK_TABLE="${TF_LOCK_TABLE:-${BACKEND_LOCK_TABLE:-$(echo "${PROJECT_NAME}-tf-locks" | tr '_' '-')}}"
+RESOLVED_STATE_KEY="${TF_STATE_KEY:-${BACKEND_KEY:-}}"
+if [ -n "${RESOLVED_STATE_KEY}" ]; then
+  STATE_KEY="${RESOLVED_STATE_KEY}"
+  USE_STATE_WORKSPACES=0
+else
+  LEGACY_STATE_KEY="${PROJECT_NAME}/${ENVIRONMENT}/terraform.tfstate"
+  if aws s3api head-object --bucket "${STATE_BUCKET}" --key "${LEGACY_STATE_KEY}" >/dev/null 2>&1; then
+    STATE_KEY="${LEGACY_STATE_KEY}"
+    USE_STATE_WORKSPACES=0
+  else
+    STATE_KEY="env/${ENVIRONMENT}/terraform.tfstate"
+    USE_STATE_WORKSPACES=1
+  fi
+fi
+echo "Terraform state backend: bucket=${STATE_BUCKET} key=${STATE_KEY} region=${AWS_REGION} lock_table=${LOCK_TABLE} workspaces=${USE_STATE_WORKSPACES}"
 
 SECRET_ARGS=()
 if [ -f secrets.tfvars ]; then
@@ -31,15 +60,17 @@ fi
 echo "Initializing Terraform (S3 backend)…"
 terraform init -input=false \
   -backend-config="bucket=${STATE_BUCKET}" \
-  -backend-config="key=env/${ENVIRONMENT}/terraform.tfstate" \
+  -backend-config="key=${STATE_KEY}" \
   -backend-config="region=${AWS_REGION}" \
   -backend-config="dynamodb_table=${LOCK_TABLE}" \
   -backend-config="encrypt=true"
 
-if ! terraform workspace select "$ENVIRONMENT" 2>/dev/null; then
-  echo "Workspace '$ENVIRONMENT' does not exist."
-  terraform workspace list
-  exit 1
+if [ "$USE_STATE_WORKSPACES" -eq 1 ]; then
+  if ! terraform workspace select "$ENVIRONMENT" 2>/dev/null; then
+    echo "Workspace '$ENVIRONMENT' does not exist."
+    terraform workspace list
+    exit 1
+  fi
 fi
 
 echo "Emptying S3 application buckets (if they exist)…"

@@ -116,6 +116,26 @@ if [ "${SKIP_ENSURE_TERRAFORM_BACKEND:-}" != "1" ]; then
   bash "${ROOT}/scripts/ensure-terraform-backend.sh" "${PROJECT_NAME}" "${AWS_REGION}" "${STATE_BUCKET}" "${LOCK_TABLE}"
 fi
 
+clear_stale_state_digest() {
+  local state_key="$1"
+  if aws s3api head-object --bucket "${STATE_BUCKET}" --key "${state_key}" >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "State object not found for key=${state_key}; clearing stale digest rows in ${LOCK_TABLE} (if any)."
+  CANDIDATE_LOCK_IDS=(
+    "${STATE_BUCKET}/${state_key}-md5"
+    "${state_key}-md5"
+  )
+  for lock_id in "${CANDIDATE_LOCK_IDS[@]}"; do
+    aws dynamodb delete-item \
+      --region "${AWS_REGION}" \
+      --table-name "${LOCK_TABLE}" \
+      --key '{"LockID":{"S":"'"${lock_id}"'"}}' >/dev/null 2>&1 || true
+  done
+}
+
+clear_stale_state_digest "${STATE_KEY}"
+
 SECRET_ARGS=()
 if [ -f secrets.tfvars ]; then
   SECRET_ARGS=(-var-file=secrets.tfvars)
