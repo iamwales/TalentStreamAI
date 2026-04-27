@@ -69,5 +69,5 @@ from mangum import Mangum  # noqa: E402  (import after env is prepared)
 from app.main import app  # noqa: E402
 
 
-handler: Any = Mangum(app, lifespan="off")
+handler: Any = Mangum(app, lifespan="on")
 
