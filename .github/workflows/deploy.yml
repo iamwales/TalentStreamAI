@@ -76,6 +76,9 @@ jobs:
           ./scripts/deploy.sh "${{ env.DEPLOY_ENV }}"
         env:
           NEXT_DISABLE_API_REWRITE: "1"
+          # Production should call same-origin `/api/*` through CloudFront.
+          # Keep this empty unless you intentionally want cross-origin API calls.
+          NEXT_PUBLIC_API_URL: ""
           # Align with scripts/ensure-terraform-backend.sh (avoid Terraform also creating the same bucket/table).
           # If your root module state still manages aws_s3_bucket.terraform_state, set true via repo tfvars or remove this override.
           TF_VAR_manage_terraform_state_backend: "false"

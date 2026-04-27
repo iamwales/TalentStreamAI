@@ -245,6 +245,18 @@ resource "aws_lambda_function" "api" {
 resource "aws_apigatewayv2_api" "http" {
   name          = "${local.name}-http-api"
   protocol_type = "HTTP"
+
+  # Safety net for browser preflight/header behavior at API Gateway level.
+  # App-level CORSMiddleware remains the primary policy, but this avoids
+  # missing CORS headers when integration/runtime responses are inconsistent.
+  cors_configuration {
+    allow_credentials = false
+    allow_headers     = ["*"]
+    allow_methods     = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    allow_origins     = ["*"]
+    expose_headers    = ["X-Request-Id"]
+    max_age           = 3600
+  }
 }
 
 resource "aws_apigatewayv2_stage" "default" {

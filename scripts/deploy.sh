@@ -298,7 +298,10 @@ CUSTOM_URL=""; CUSTOM_URL=$(terraform output -raw cloudfront_url 2>/dev/null) ||
 
 # --- 3) Frontend (Next static export) ---
 cd "${ROOT}/frontend"
-echo "NEXT_PUBLIC_API_URL=${API_URL}" > .env.production
+# Default production behavior: same-origin `/api/*` behind CloudFront.
+# Set NEXT_PUBLIC_API_URL explicitly only if you intentionally want cross-origin browser calls.
+echo "NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-}" > .env.production
+echo "Frontend API base (NEXT_PUBLIC_API_URL): ${NEXT_PUBLIC_API_URL:-<same-origin /api>}"
 # Bake Clerk key if the pipeline provides it
 if [ -n "${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}" ]; then
   echo "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}" >> .env.production
