@@ -137,6 +137,78 @@ if [ "$USE_STATE_WORKSPACES" -eq 1 ]; then
   fi
 fi
 
+LOCAL_NAME="${PROJECT_NAME}-${ENVIRONMENT}"
+FRONTEND_BUCKET_NAME="${LOCAL_NAME}-frontend-${AWS_ACCOUNT_ID}"
+UPLOADS_BUCKET_NAME="${LOCAL_NAME}-uploads-${AWS_ACCOUNT_ID}"
+DB_SUBNET_GROUP_NAME="${LOCAL_NAME}-aurora"
+API_LAMBDA_ROLE_NAME="${LOCAL_NAME}-api-lambda-role"
+APP_SECRET_NAME="${LOCAL_NAME}/app"
+API_LAMBDA_SG_NAME="${LOCAL_NAME}-api-lambda"
+AURORA_SG_NAME="${LOCAL_NAME}-aurora"
+
+import_if_missing() {
+  local address="$1"
+  local import_id="$2"
+  if terraform state show "$address" >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "Importing existing resource into state: ${address} (${import_id})"
+  terraform import "$address" "$import_id" >/dev/null
+}
+
+maybe_import_existing_stack_resources() {
+  echo "Checking for existing AWS resources to adopt into Terraform state..."
+
+  if aws s3api head-bucket --bucket "${FRONTEND_BUCKET_NAME}" 2>/dev/null; then
+    import_if_missing "aws_s3_bucket.frontend" "${FRONTEND_BUCKET_NAME}"
+  fi
+  if aws s3api head-bucket --bucket "${UPLOADS_BUCKET_NAME}" 2>/dev/null; then
+    import_if_missing "aws_s3_bucket.uploads" "${UPLOADS_BUCKET_NAME}"
+  fi
+  if aws iam get-role --role-name "${API_LAMBDA_ROLE_NAME}" >/dev/null 2>&1; then
+    import_if_missing "aws_iam_role.api_lambda_role" "${API_LAMBDA_ROLE_NAME}"
+  fi
+  if aws secretsmanager describe-secret --region "${AWS_REGION}" --secret-id "${APP_SECRET_NAME}" >/dev/null 2>&1; then
+    import_if_missing "aws_secretsmanager_secret.app" "${APP_SECRET_NAME}"
+  fi
+  if aws rds describe-db-subnet-groups --region "${AWS_REGION}" --db-subnet-group-name "${DB_SUBNET_GROUP_NAME}" >/dev/null 2>&1; then
+    import_if_missing "aws_db_subnet_group.aurora[0]" "${DB_SUBNET_GROUP_NAME}"
+  fi
+  AURORA_SECRET_NAME=$(aws secretsmanager list-secrets --region "${AWS_REGION}" \
+    --filters "Key=name,Values=${LOCAL_NAME}-aurora-" \
+    --query "SecretList[0].Name" --output text 2>/dev/null || echo "")
+  if [ -n "${AURORA_SECRET_NAME}" ] && [ "${AURORA_SECRET_NAME}" != "None" ]; then
+    AURORA_SECRET_DELETED_AT=$(aws secretsmanager describe-secret --region "${AWS_REGION}" \
+      --secret-id "${AURORA_SECRET_NAME}" --query "DeletedDate" --output text 2>/dev/null || echo "")
+    if [ -n "${AURORA_SECRET_DELETED_AT}" ] && [ "${AURORA_SECRET_DELETED_AT}" != "None" ]; then
+      echo "Restoring aurora secret pending deletion: ${AURORA_SECRET_NAME}"
+      aws secretsmanager restore-secret --region "${AWS_REGION}" --secret-id "${AURORA_SECRET_NAME}" >/dev/null
+    fi
+    import_if_missing "aws_secretsmanager_secret.aurora[0]" "${AURORA_SECRET_NAME}"
+  fi
+
+  DEFAULT_VPC_ID=$(aws ec2 describe-vpcs --region "${AWS_REGION}" --filters Name=isDefault,Values=true --query "Vpcs[0].VpcId" --output text 2>/dev/null || echo "")
+  if [ -n "${DEFAULT_VPC_ID}" ] && [ "${DEFAULT_VPC_ID}" != "None" ]; then
+    API_LAMBDA_SG_ID=$(aws ec2 describe-security-groups --region "${AWS_REGION}" \
+      --filters "Name=group-name,Values=${API_LAMBDA_SG_NAME}" "Name=vpc-id,Values=${DEFAULT_VPC_ID}" \
+      --query "SecurityGroups[0].GroupId" --output text 2>/dev/null || echo "")
+    if [ -n "${API_LAMBDA_SG_ID}" ] && [ "${API_LAMBDA_SG_ID}" != "None" ]; then
+      import_if_missing "aws_security_group.api_lambda[0]" "${API_LAMBDA_SG_ID}"
+    fi
+
+    AURORA_SG_ID=$(aws ec2 describe-security-groups --region "${AWS_REGION}" \
+      --filters "Name=group-name,Values=${AURORA_SG_NAME}" "Name=vpc-id,Values=${DEFAULT_VPC_ID}" \
+      --query "SecurityGroups[0].GroupId" --output text 2>/dev/null || echo "")
+    if [ -n "${AURORA_SG_ID}" ] && [ "${AURORA_SG_ID}" != "None" ]; then
+      import_if_missing "aws_security_group.aurora[0]" "${AURORA_SG_ID}"
+    fi
+  fi
+}
+
+if [ "${AUTO_IMPORT_EXISTING_RESOURCES:-1}" = "1" ]; then
+  maybe_import_existing_stack_resources
+fi
+
 echo "Applying Terraform…"
 APPLY=(terraform apply -auto-approve -var="project_name=${PROJECT_NAME}" -var="environment=${ENVIRONMENT}" -lock-timeout=5m)
 if [ "${#SECRET_ARGS[@]}" -gt 0 ]; then APPLY+=("${SECRET_ARGS[@]}"); fi
