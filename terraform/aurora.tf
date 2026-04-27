@@ -174,12 +174,21 @@ resource "aws_security_group" "secretsmanager_endpoint" {
   description = "Secrets Manager VPC endpoint access for ${local.name}"
   vpc_id      = data.aws_vpc.default[0].id
 
+  # Allow HTTPS from any client inside the VPC that needs to fetch secrets.
+  # Right now that's two SGs: the API Lambda ENI (runtime secret reads) and
+  # the frontend ECS task ENI (the *execution* role pulls JSON keys to inject
+  # into the container at task start — if this is blocked, the task fails to
+  # start before any container log is emitted, which surfaces as a CloudFront
+  # 503 with no ECS task logs).
   ingress {
-    description     = "HTTPS from API Lambda"
-    from_port       = 443
-    to_port         = 443
-    protocol        = "tcp"
-    security_groups = [aws_security_group.api_lambda[0].id]
+    description = "HTTPS from in-VPC clients (Lambda + frontend ECS tasks)"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    security_groups = [
+      aws_security_group.api_lambda[0].id,
+      aws_security_group.frontend_ecs.id,
+    ]
   }
 
   egress {
