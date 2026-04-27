@@ -33,6 +33,9 @@ jobs:
     name: Deploy to ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'dev' }}
     runs-on: ubuntu-latest
     environment: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'dev' }}
+    # configure-aws-credentials requires a non-empty region. If DEFAULT_AWS_REGION is not set, default here.
+    env:
+      DEFAULT_AWS_REGION: ${{ secrets.DEFAULT_AWS_REGION && secrets.DEFAULT_AWS_REGION || 'us-east-1' }}
 
     steps:
       - name: Checkout
@@ -43,7 +46,7 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: github-actions-deploy
-          aws-region: ${{ secrets.DEFAULT_AWS_REGION }}
+          aws-region: ${{ env.DEFAULT_AWS_REGION }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -63,21 +66,29 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: "frontend/.nvmrc"
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
       - name: Run deploy script
         run: |
-          export DEFAULT_AWS_REGION=${{ secrets.DEFAULT_AWS_REGION }}
-          chmod +x scripts/deploy.sh
+          chmod +x scripts/deploy.sh scripts/ensure-terraform-backend.sh
           ./scripts/deploy.sh "${{ env.DEPLOY_ENV }}"
         env:
           NEXT_DISABLE_API_REWRITE: "1"
+          # Align with scripts/ensure-terraform-backend.sh (avoid Terraform also creating the same bucket/table).
+          # If your root module state still manages aws_s3_bucket.terraform_state, set true via repo tfvars or remove this override.
+          TF_VAR_manage_terraform_state_backend: "false"
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
           TF_VAR_clerk_jwks_url: ${{ secrets.CLERK_JWKS_URL }}
           TF_VAR_clerk_issuer: ${{ secrets.CLERK_ISSUER }}
           TF_VAR_app_secrets_json: ${{ secrets.APP_SECRETS_JSON }}
+          # Optional: if your S3 state bucket/key/table names differ from the script’s defaults, set these
+          # to match the same values as your local `terraform/backend.hcl` (or create the default bucket in AWS).
+          TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+          TF_STATE_REGION: ${{ secrets.TF_STATE_REGION }}
+          TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
+          TF_STATE_KEY: ${{ secrets.TF_STATE_KEY }}
 
       - name: Deployment summary
         if: success()

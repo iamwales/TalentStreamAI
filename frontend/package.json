@@ -2,6 +2,9 @@
   "name": "frontend",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.9.0"
+  },
   "scripts": {
     "dev": "dotenv -e ../.env -- next dev",
     "build": "dotenv -e ../.env -- sh -c 'export NEXT_STATIC_EXPORT=1 && next build'",

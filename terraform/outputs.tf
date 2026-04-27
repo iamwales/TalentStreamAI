@@ -50,13 +50,13 @@ output "api_gateway_url" {
 }
 
 output "terraform_state_bucket_name" {
-  description = "S3 bucket for Terraform state (if manage_terraform_state_backend = true). Use in backend.hcl after first apply + state migration."
-  value       = var.manage_terraform_state_backend ? aws_s3_bucket.terraform_state[0].id : null
+  description = "S3 bucket for Terraform remote state (Terraform-managed when manage_terraform_state_backend, else the conventional name used by ensure-terraform-backend.sh / deploy.sh)."
+  value       = var.manage_terraform_state_backend ? aws_s3_bucket.terraform_state[0].id : "${var.project_name}-tfstate-${data.aws_caller_identity.current.account_id}"
 }
 
 output "terraform_state_lock_table_name" {
-  description = "DynamoDB table for state locking (if manage_terraform_state_backend = true)."
-  value       = var.manage_terraform_state_backend ? aws_dynamodb_table.terraform_state_lock[0].name : null
+  description = "DynamoDB table for state locking (same convention as above)."
+  value       = var.manage_terraform_state_backend ? aws_dynamodb_table.terraform_state_lock[0].name : replace("${var.project_name}-tf-locks", "_", "-")
 }
 
 output "aurora_cluster_endpoint" {

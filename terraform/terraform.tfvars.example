@@ -3,7 +3,9 @@ project_name = "talentstreamai"
 environment  = "dev"
 
 # Create S3 + DynamoDB for remote state (see root README). Set false to use an existing backend only.
-manage_terraform_state_backend = true
+# false = default when using scripts/deploy.sh (ensure script creates S3 + DynamoDB before init).
+# true = let Terraform create state backend (typical one-off bootstrap without deploy.sh).
+manage_terraform_state_backend = false
 # GitHub OIDC is not managed in Terraform: create the IAM role in AWS and set AWS_ROLE_ARN in the repo.
 
 # --- Aurora (PostgreSQL, Serverless v2) — always created for this stack ---

@@ -64,7 +64,7 @@ Pick what matches how you work day to day:
 
 - **Docker Desktop** (or Docker Engine) plus the Compose plugin for the one-command local stack.
 - **[uv](https://docs.astral.sh/uv/getting-started/installation/)** for installing and running the Python service (lockfile-backed).
-- **Python 3.12** (`backend/.python-version` helps pyenv/asdf) and **Node.js 20+** for host-only development.
+- **Python 3.12** (`backend/.python-version` helps pyenv/asdf) and **Node.js 22** (e.g. 22.9; see `frontend/.nvmrc`) for host-only development.
 - **Terraform 1.6+** and the **AWS CLI v2** when you touch AWS resources.
 - An **AWS account** with credentials (`AWS_PROFILE` or standard access keys) when running Terraform or deploy workflows locally.
 

@@ -63,12 +63,31 @@ with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
 print("Wrote", out)
 PY
 
-# --- 2) Terraform (remote S3: same pattern as one shared bucket; key per env) ---
+# --- 2) Terraform (S3 remote state) ---
 cd "${ROOT}/terraform"
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-AWS_REGION=${DEFAULT_AWS_REGION:-us-east-1}
-STATE_BUCKET="${PROJECT_NAME}-tfstate-${AWS_ACCOUNT_ID}"
-LOCK_TABLE=$(echo "${PROJECT_NAME}-tf-locks" | tr '_' '-')
+# Region for the state bucket (must match where the bucket lives; avoid S3 301/redirect issues).
+AWS_REGION="${TF_STATE_REGION:-${DEFAULT_AWS_REGION:-us-east-1}}"
+# Default name matches terraform/terraform_state.tf: "${project_name}-tfstate-${account_id}"
+# Override in CI (e.g. GitHub) if you created the bucket with a different name: TF_STATE_BUCKET, TF_LOCK_TABLE.
+STATE_BUCKET="${TF_STATE_BUCKET:-${PROJECT_NAME}-tfstate-${AWS_ACCOUNT_ID}}"
+LOCK_TABLE="${TF_LOCK_TABLE:-$(echo "${PROJECT_NAME}-tf-locks" | tr '_' '-')}"
+# Default key = env/<stage>/... + `terraform workspace` (see below). If you use a single object key
+# per stage (e.g. talentstreamai/dev/terraform.tfstate) and the default workspace, set TF_STATE_KEY
+# and we skip creating/selecting a named workspace.
+if [ -n "${TF_STATE_KEY:-}" ]; then
+  STATE_KEY="${TF_STATE_KEY}"
+  USE_STATE_WORKSPACES=0
+else
+  STATE_KEY="env/${ENVIRONMENT}/terraform.tfstate"
+  USE_STATE_WORKSPACES=1
+fi
+
+# Idempotent S3 + DynamoDB for remote state (CI sets TF_VAR_manage_terraform_state_backend=false).
+# SKIP_ENSURE_TERRAFORM_BACKEND=1 if Terraform still manages the state bucket in your root state.
+if [ "${SKIP_ENSURE_TERRAFORM_BACKEND:-}" != "1" ]; then
+  bash "${ROOT}/scripts/ensure-terraform-backend.sh" "${PROJECT_NAME}" "${AWS_REGION}"
+fi
 
 SECRET_ARGS=()
 if [ -f secrets.tfvars ]; then
@@ -78,15 +97,17 @@ else
 fi
 
 # Terraform reads TF_VAR_* from the environment automatically.
-terraform init -input=false \
+terraform init -input=false -reconfigure \
   -backend-config="bucket=${STATE_BUCKET}" \
-  -backend-config="key=env/${ENVIRONMENT}/terraform.tfstate" \
+  -backend-config="key=${STATE_KEY}" \
   -backend-config="region=${AWS_REGION}" \
   -backend-config="dynamodb_table=${LOCK_TABLE}" \
   -backend-config="encrypt=true"
 
-if ! terraform workspace select "$ENVIRONMENT" 2>/dev/null; then
-  terraform workspace new "$ENVIRONMENT"
+if [ "$USE_STATE_WORKSPACES" -eq 1 ]; then
+  if ! terraform workspace select "$ENVIRONMENT" 2>/dev/null; then
+    terraform workspace new "$ENVIRONMENT"
+  fi
 fi
 
 echo "Applying Terraform…"

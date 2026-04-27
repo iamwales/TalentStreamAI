@@ -22,8 +22,8 @@ variable "environment" {
 
 variable "manage_terraform_state_backend" {
   type        = bool
-  description = "Create S3 bucket + DynamoDB table for Terraform remote state. Set false only if you use an existing backend and configure backend.hcl yourself."
-  default     = true
+  description = "When true, Terraform creates the S3 state bucket + DynamoDB lock table. When false (required for `scripts/deploy.sh`, which runs `ensure-terraform-backend.sh` first), those resources are created outside Terraform to avoid duplicate applies / first-time bootstrap. Raw `terraform apply` without deploy.sh can use true for a classic local-then-migrate flow."
+  default     = false
 }
 
 # -----------------------------------------------------------------------------

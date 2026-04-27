@@ -1,6 +1,5 @@
-# Remote state (S3 + DynamoDB) — created in the same root module when `manage_terraform_state_backend` is true.
-# CI and `scripts/deploy.sh` use that bucket; first-time workflow: use `terraform init -reconfigure -backend=false`, apply, then migrate state (see root README).
-# Set `manage_terraform_state_backend = false` only if you supply an existing backend.
+# Remote state (S3 + DynamoDB) — only when `manage_terraform_state_backend` is true.
+# `scripts/deploy.sh` / GitHub Actions use `ensure-terraform-backend.sh` + this flag false so the bucket/table exist before `terraform init` with no duplicate resources.
 
 resource "aws_s3_bucket" "terraform_state" {
   count = var.manage_terraform_state_backend ? 1 : 0
